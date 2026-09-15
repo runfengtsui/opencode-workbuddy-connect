@@ -42,13 +42,49 @@ npm run build
 
 插件会以 `workbuddy` 为 provider 自动注册全部模型。
 
+## 两个接入点
+
+WorkBuddy 有两个互相独立的站点，**同一账号在另一个站点上用不了**。插件同时提供两个 provider：
+
+| Provider | 站点 | 浏览器登录打开 | 凭据存储 |
+|---|---|---|---|
+| `workbuddy` | `www.workbuddy.ai`（国际版） | 国际版登录页 | `~/.config/opencode/workbuddy-auth.json` |
+| `workbuddy-cn` | `www.workbuddy.cn`（国内版） | 国内版登录页 | `~/.config/opencode/workbuddy-cn-auth.json` |
+
+每个接入点都是独立的插件实例：独立登录、独立凭据存储、独立基址。因此**登录其中一个绝不会覆盖另一个**，CN 流量也不可能漏到国际版端点。选哪个看模型名即可：`workbuddy-cn/hy3` 与 `workbuddy/hy3`。
+
+由于一个 auth hook 只能绑定一个 provider，两个接入点需要加载两份插件。已提供两个入口文件：
+
+```jsonc
+{
+  "plugin": [
+    ["opencode-workbuddy-connect", {}],
+    ["opencode-workbuddy-connect/dist/index.js", { "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)", "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" }]
+  ]
+}
+```
+
+若你的 opencode 从 `~/.config/opencode/plugin/` 目录加载插件，放两个 shim 文件（每区域一个），各自调用导出的工厂函数：
+
+```js
+// ~/.config/opencode/plugin/workbuddy.js
+import { definePlugin } from "opencode-workbuddy-connect";
+export default definePlugin("intl");
+
+// ~/.config/opencode/plugin/workbuddy-cn.js
+import { definePlugin } from "opencode-workbuddy-connect";
+export default definePlugin("cn");
+```
+
+条目上显式传入的 options 永远覆盖区域默认值，因此每个接入点都可以自定义 `baseUrl` / `storeName`。
+
 ## 认证
 
 以下来源按顺序取第一个命中的：
 
 1. **插件 options** — 在 provider（或 `opencode.json` 的插件条目）上配 `"options": { "apiKey": "<token>", "userID": "<uid>", "baseUrl": "https://www.workbuddy.cn" }`。
 2. **环境变量** — `WORKBUDDY_TOKEN` + `WORKBUDDY_UID`；可选 `WORKBUDDY_BASE_URL`、`WORKBUDDY_AUTH_FILE`。
-3. **自身存储** — `~/.config/opencode/workbuddy-auth.json`（下面的浏览器登录会写入它，每次刷新成功也会更新它）。
+3. **自身存储** — 上表中该接入点专属的文件（下面的浏览器登录会写入它，每次刷新成功也会更新它）。
 4. **桌面端 auth 文件** — 自动定位
    `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`
    （CN 桌面端，`www.workbuddy.cn`）或 `workbuddy-desktop-ai.info`（国际版）。
@@ -58,13 +94,13 @@ npm run build
 ### 交互式登录
 
 ```bash
-opencode auth login   # 选择 "WorkBuddy AI"
+opencode auth login   # 选择 "WorkBuddy AI" 或 "WorkBuddy AI (CN)"
 ```
 
-提供两种方式：
+每个接入点都提供两种方式：
 
 - **Access Token** — 直接粘贴 token；也可写成 `token|uid|https://www.workbuddy.cn` 以同时指定账号与站点。
-- **Browser Login** — 打开 WorkBuddy 登录页并轮询取回凭据。CN 桌面端账号请先设 `WORKBUDDY_BASE_URL=https://www.workbuddy.cn`（默认登录基址是国际版 `www.workbuddy.ai`）。
+- **Browser Login** — 打开**该接入点自己的**登录页并轮询取回凭据。无需再设环境变量：选 `WorkBuddy AI (CN)` 就是 `www.workbuddy.cn`。
 
 ## 模型
 
@@ -112,23 +148,28 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 |---|---|
 | `apiKey` / `userID` / `baseUrl` | 显式凭据，链上最高优先级 |
 | `providerID` | 以其他 id 注册（默认 `workbuddy`） |
+| `providerName` | `/connect` 与选择器里的显示名（默认 `WorkBuddy AI`） |
+| `storeName` | 该接入点读写哪个自身存储文件 |
 | `setDefault: true` | 在未显式设置 `model` 时把 `workbuddy/hy3` 设为默认模型 |
 | （agent 预置） | 若你未配置，`plan` / `general` / `explore` / `title` / `compaction` 子代理会被钉到 `workbuddy/hy3` |
+
+`definePlugin("intl" | "cn")` 会预填 `providerID`、`providerName`、`storeName`，以及（CN 的）`baseUrl`；条目上显式传入的值优先于这些默认。
 
 所有模型的计费都注册为 `0` —— 桌面端凭据的额度由 WorkBuddy 侧结算，与 opencode 无关。
 
 ### 查看认证状态
 
-插件自带 `workbuddy_account` 工具（agent 可见），报告当前解析出的 uid、过期时间、基址与凭据来源——绝不输出 token 本身。直接问 agent：*"现在用的是哪个 WorkBuddy 账号？"*
+插件自带账号工具——国际版接入点是 `workbuddy_account`，国内版是 `workbuddy_cn_account`（两者 agent 均可见），报告当前 provider、解析出的 uid、过期时间、基址与凭据来源——绝不输出 token 本身。直接问 agent：*"现在用的是哪个 WorkBuddy 账号？"*
 
 ## 排障
 
 插件日志行一律带 `[workbuddy]` 前缀、写到 stderr——在 `opencode run` 的输出里可见。
 
 - **刷新之后仍然 `401`/`403`** — 桌面端会话过期：重新登录 WorkBuddy 桌面端，或用 `opencode auth login`。
-- **Browser Login 一直等不到结果** — 登录的站点和账号不匹配（国际版页面 vs CN 账号，或反之）。设 `WORKBUDDY_BASE_URL=https://www.workbuddy.cn`（或 `.ai`）后重试。
+- **Browser Login 一直等不到结果** — 账号属于另一个站点。改选匹配的接入点（`WorkBuddy AI` 或 `WorkBuddy AI (CN)`）即可；每个接入点打开的是自己的登录页，不再需要折腾 `WORKBUDDY_BASE_URL`。
+- **`WorkBuddy credentials not found. Run /connect workbuddy-cn`** — 该接入点还没登录过。它与 `workbuddy` 的存储本就是分开的，两个站点各登录一次。
 - **flash 模型答非所问、输出极短循环** — 防护封顶已生效；若仍异常，换非 flash 模型。
-- **`languageModel is not a function`** — `dist/` 未构建或已过期：跑 `npm run build`。
+- **`languageModel is not a function`** — 要么 `dist/` 未构建或已过期（跑 `npm run build`）；要么你自己的入口文件里 `create*` 导出排在了 `createWorkBuddy` 前面：opencode 的旧版 provider loader 调用模块的**第一个** `create*` 导出并期望拿到 AI-SDK provider，所以该前缀已被占用。入口文件请用导出的 `definePlugin()`。
 
 ## 测试
 

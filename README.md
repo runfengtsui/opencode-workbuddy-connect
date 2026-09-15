@@ -42,13 +42,56 @@ Register the plugin in `~/.config/opencode/opencode.json`:
 
 The plugin registers itself as provider `workbuddy` and publishes all models automatically.
 
+## Integration points
+
+WorkBuddy has two independent endpoints, and an account on one does **not**
+work on the other. The plugin ships both, as two provider ids:
+
+| Provider | Endpoint | Browser Login opens | Credential store |
+|---|---|---|---|
+| `workbuddy` | `www.workbuddy.ai` (international) | international login | `~/.config/opencode/workbuddy-auth.json` |
+| `workbuddy-cn` | `www.workbuddy.cn` (CN) | CN login | `~/.config/opencode/workbuddy-cn-auth.json` |
+
+Each is its own plugin instance with its own login, its own credential store
+and its own base URL, so **logging into one never overwrites the other** and
+CN traffic can never leak to the international endpoint. Pick by model name:
+`workbuddy-cn/hy3` vs `workbuddy/hy3`.
+
+Because an auth hook binds exactly one provider per instance, both endpoints
+need two loaded copies of the plugin. Two entry files are already published:
+
+```jsonc
+{
+  "plugin": [
+    ["opencode-workbuddy-connect", {}],
+    ["opencode-workbuddy-connect/dist/index.js", { "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)", "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" }]
+  ]
+}
+```
+
+If your opencode loads plugins from `~/.config/opencode/plugin/` instead, drop
+in two shim files (one per region) that call the exported factory:
+
+```js
+// ~/.config/opencode/plugin/workbuddy.js
+import { definePlugin } from "opencode-workbuddy-connect";
+export default definePlugin("intl");
+
+// ~/.config/opencode/plugin/workbuddy-cn.js
+import { definePlugin } from "opencode-workbuddy-connect";
+export default definePlugin("cn");
+```
+
+Options passed to an entry always win over the region defaults, so you can pin
+a custom `baseUrl` / `storeName` per integration point.
+
 ## Authentication
 
 The first successful source wins, in this order:
 
 1. **Plugin options** — `"options": { "apiKey": "<token>", "userID": "<uid>", "baseUrl": "https://www.workbuddy.cn" }` on the provider (or on the plugin entry in `opencode.json`).
 2. **Environment** — `WORKBUDDY_TOKEN` + `WORKBUDDY_UID`; optionally `WORKBUDDY_BASE_URL` and `WORKBUDDY_AUTH_FILE`.
-3. **Own store** — `~/.config/opencode/workbuddy-auth.json` (written by Browser Login below, and by every successful token refresh).
+3. **Own store** — the per-integration-point file from the table above (written by Browser Login below, and by every successful token refresh).
 4. **Desktop auth file** — automatically located in
    `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`
    (CN desktop, `www.workbuddy.cn`) or `workbuddy-desktop-ai.info` (international).
@@ -58,13 +101,13 @@ If you already run the WorkBuddy / CodeBuddy desktop app signed in, **nothing to
 ### Interactive login
 
 ```bash
-opencode auth login   # pick "WorkBuddy AI"
+opencode auth login   # pick "WorkBuddy AI" or "WorkBuddy AI (CN)"
 ```
 
-Two methods are offered:
+Two methods are offered per integration point:
 
 - **Access Token** — paste a raw token; optionally in the form `token|uid|https://www.workbuddy.cn` to pin the account and host.
-- **Browser Login** — opens the WorkBuddy login page and polls for the credential. For a CN desktop account set `WORKBUDDY_BASE_URL=https://www.workbuddy.cn` first (the default login base is the international `www.workbuddy.ai`).
+- **Browser Login** — opens that integration point's own login page and polls for the credential. No environment variable needed: `WorkBuddy AI (CN)` already opens `www.workbuddy.cn`.
 
 ## Models
 
@@ -112,23 +155,28 @@ or set it as the default:
 |---|---|
 | `apiKey` / `userID` / `baseUrl` | explicit credentials, top of the chain |
 | `providerID` | register under a different id (default `workbuddy`) |
+| `providerName` | display name in `/connect` and the picker (default `WorkBuddy AI`) |
+| `storeName` | which own-store file this integration point reads/writes |
 | `setDefault: true` | make `workbuddy/hy3` the default model unless `model` is already set |
 | (agent pins) | `plan` / `general` / `explore` / `title` / `compaction` subagents are pinned to `workbuddy/hy3` if you haven't configured them |
+
+`definePlugin("intl" | "cn")` pre-fills `providerID`, `providerName`, `storeName` and (for CN) `baseUrl`; anything you pass on the entry overrides them.
 
 All models are registered with cost `0` — the desktop credential's quota is billed by WorkBuddy, not by opencode.
 
 ### Inspecting auth
 
-The plugin ships a `workbuddy_account` tool (visible to the agent) that reports the resolved uid, expiry, base URL and credential source — never the token value. Ask the agent: *"which WorkBuddy account is active?"*
+The plugin ships an account tool — `workbuddy_account` for the international integration point, `workbuddy_cn_account` for the CN one (both visible to the agent). It reports the resolved provider, uid, expiry, base URL and credential source — never the token value. Ask the agent: *"which WorkBuddy account is active?"*
 
 ## Troubleshooting
 
 Every plugin log line is prefixed `[workbuddy]` and written to stderr — visible in `opencode run` output.
 
 - **`401`/`403` even after refresh** — the desktop session expired: sign in to the WorkBuddy desktop app again, or use `opencode auth login`.
-- **Browser Login never completes** — you logged into the *international* page but the account is CN (or vice-versa). Set `WORKBUDDY_BASE_URL=https://www.workbuddy.cn` (or `.ai`) and retry.
+- **Browser Login never completes** — the account belongs to the *other* endpoint. Pick the matching integration point (`WorkBuddy AI` vs `WorkBuddy AI (CN)`); each one opens its own login page, so no `WORKBUDDY_BASE_URL` juggling is needed.
+- **`WorkBuddy credentials not found. Run /connect workbuddy-cn`** — that integration point has never logged in. Its store is separate from `workbuddy`'s by design; sign in once per endpoint.
 - **Flash models answering with tiny loops** — intended guard is active; if it still misbehaves, pick a non-flash model.
-- **`languageModel is not a function`** — you're importing an unbuilt `dist/`; run `npm run build`.
+- **`languageModel is not a function`** — either you're importing an unbuilt `dist/` (run `npm run build`), or your own entry file exports something named `create*` before `createWorkBuddy`: opencode's legacy provider loader calls the module's **first** `create*` export and expects an AI-SDK provider, so that prefix is reserved. Use the exported `definePlugin()` for entry files.
 
 ## Tests
 
