@@ -453,10 +453,17 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
           if (!delta) return;
           if (delta.reasoning_content) emitter.reasoning(delta.reasoning_content);
           if (delta.content) emitter.text(delta.content);
-          if (delta.tool_calls) {
+          // The gateway stamps EVERY delta with an empty `tool_calls: []`, and
+          // `[]` is truthy -- testing the array alone closed the open text /
+          // reasoning block on every token, so opencode rendered one token per
+          // line. Only react to a chunk that actually carries tool-call signal.
+          const tcDeltas = delta.tool_calls?.filter(
+            (tc) => tc.id || tc.function?.name || tc.function?.arguments,
+          );
+          if (tcDeltas?.length) {
             emitter.endReasoning();
             emitter.endText();
-            for (const tc of delta.tool_calls) {
+            for (const tc of tcDeltas) {
               const index = tc.index ?? 0;
               let state = toolCalls[index];
               if (!state) {
