@@ -417,9 +417,16 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
 
 export type WorkBuddyRegion = "intl" | "cn";
 
-/** Build one integration point. AuthHook binds a single provider, so the
- * international and CN endpoints are two instances of this module. */
-export function createPlugin(region: WorkBuddyRegion = "intl") {
+/**
+ * Build one integration point. AuthHook binds a single provider, so the
+ * international and CN endpoints are two instances of this module.
+ *
+ * NOTE the name: opencode's legacy npm loader calls the module's FIRST
+ * `create*` export (namespace keys sort alphabetically, so `createPlugin`
+ * would win over `createWorkBuddy`) and expects an AI-SDK provider with
+ * `.languageModel()`. Only createWorkBuddy may carry that prefix.
+ */
+export function definePlugin(region: WorkBuddyRegion = "intl") {
   const r = region === "cn" ? CN_REGION : INTL_REGION;
   return {
     id: r.moduleID,
@@ -428,7 +435,7 @@ export function createPlugin(region: WorkBuddyRegion = "intl") {
   };
 }
 
-export default createPlugin("intl");
+export default definePlugin("intl");
 
 // Re-exported for tooling that wants the credential-file parser.
 export { parseWorkBuddyAuth };

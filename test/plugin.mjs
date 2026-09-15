@@ -3,7 +3,7 @@
 // effort variants, auth methods, a region-unique account tool, and a
 // credential store that cannot clobber the other region's.
 // Run: node test/plugin.mjs
-import { createPlugin } from "../dist/index.js";
+import { definePlugin } from "../dist/index.js";
 
 const EXPECT = {
   intl: {
@@ -37,7 +37,7 @@ const check = (cond, msg) => {
 
 for (const [region, want] of Object.entries(EXPECT)) {
   console.log(`\n--- ${region} ---`);
-  const plugin = createPlugin(region);
+  const plugin = definePlugin(region);
   check(plugin.id === want.pluginID, `plugin id ${plugin.id} != ${want.pluginID}`);
   check(typeof plugin.server === "function", "plugin.server missing");
   check(typeof plugin.setup === "function", "plugin.setup missing");
@@ -90,7 +90,7 @@ for (const [region, want] of Object.entries(EXPECT)) {
   console.log(`account tool: ${tools.join(",")}`);
 
   // Options from a tuple entry still override the region defaults.
-  const overridden = await createPlugin(region).server({}, { baseUrl: "https://gateway.example.test", storeName: "x.json" });
+  const overridden = await definePlugin(region).server({}, { baseUrl: "https://gateway.example.test", storeName: "x.json" });
   const ocfg = { provider: {} };
   await overridden.config(ocfg);
   const op = ocfg.provider[want.providerID].options;
