@@ -19,7 +19,7 @@ Zero-credential setup if you use the WorkBuddy / CodeBuddy desktop app: the plug
 
 ## Requirements
 
-- opencode with the v2 plugin API (tested on 1.18.31)
+- opencode with the v2 plugin API (tested on 1.18.30)
 - Node.js ≥ 20 (global `fetch`)
 - A WorkBuddy account: either the desktop app logged in on this machine, or a token you can paste
 

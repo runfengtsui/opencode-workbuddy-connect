@@ -1,9 +1,14 @@
 // Tool-calling smoke test: forces a tool call and a full tool round-trip.
-// Run: node test/tools.mjs [modelId]
+// Run: node test/tools.mjs [modelId] [intl|cn]
+//      (region also reads $WORKBUDDY_REGION; defaults to intl)
 import { WorkBuddyLanguageModel } from "../dist/language-model.js";
+import { describeRegion, regionOptions } from "./region.mjs";
 
 const MODEL = process.argv[2] || "hy3";
-const lm = new WorkBuddyLanguageModel(MODEL, {});
+const REGION = regionOptions(process.argv[3]);
+const lm = new WorkBuddyLanguageModel(MODEL, REGION);
+
+console.log(`access point: ${describeRegion(REGION)}`);
 
 const tools = [
   {

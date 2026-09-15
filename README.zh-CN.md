@@ -19,7 +19,7 @@
 
 ## 环境要求
 
-- 支持 v2 插件 API 的 opencode（实测 1.18.31）
+- 支持 v2 插件 API 的 opencode（实测 1.18.30）
 - Node.js ≥ 20（依赖全局 `fetch`）
 - 一个 WorkBuddy 账号：本机桌面端已登录，或有可粘贴的 token
 

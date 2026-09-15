@@ -326,9 +326,10 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
       provider: id,
       loader: async (auth) => {
         const stored = (await auth()) as StoredCredentialShape | undefined;
+        const fromStored = stored ? storedToOptions(stored) : {};
         const resolved: WorkBuddyProviderOptions = {
-          ...(stored ? storedToOptions(stored) : {}),
-          baseUrl: (stored ? storedToOptions(stored).baseUrl : undefined) || optionString(options, "baseUrl"),
+          ...fromStored,
+          baseUrl: fromStored.baseUrl || optionString(options, "baseUrl"),
           storeName: store,
           providerID: id,
         };

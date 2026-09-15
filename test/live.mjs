@@ -1,10 +1,13 @@
 // Live end-to-end smoke test for the compiled plugin.
-// Run: node test/live.mjs [modelId]   (from F:\code\opencode-workbuddy-connect)
+// Run: node test/live.mjs [modelId] [intl|cn]
+//      (region also reads $WORKBUDDY_REGION; defaults to intl)
 import { WORKBUDDY_MODELS } from "../dist/models.js";
 import { resolveWorkBuddyCredentials } from "../dist/auth.js";
 import { WorkBuddyLanguageModel } from "../dist/language-model.js";
+import { describeRegion, regionOptions } from "./region.mjs";
 
 const MODEL = process.argv[2] || "hy3";
+const REGION = regionOptions(process.argv[3]);
 
 // 1. Model table check: 1M context models registered at 1M.
 console.log("== model table (context window) ==");
@@ -15,12 +18,13 @@ console.log("1M models:", WORKBUDDY_MODELS.filter((m) => m.contextWindow >= 1_00
 
 // 2. Credential chain check (options -> env -> own store -> desktop file).
 console.log("\n== credentials ==");
-const cred = await resolveWorkBuddyCredentials({});
+console.log(`region: ${describeRegion(REGION)}`);
+const cred = await resolveWorkBuddyCredentials(REGION);
 console.log(`uid=${cred.uid} domain=${cred.domain} token=${cred.accessToken.slice(0, 8)}... exp=${cred.expiresAtMs ? new Date(cred.expiresAtMs).toISOString() : "-"}`);
 
 // 3. Live stream through the real LanguageModelV3 implementation.
-console.log(`\n== live stream (${MODEL}) ==`);
-const lm = new WorkBuddyLanguageModel(MODEL, {});
+console.log(`\n== live stream (${REGION.providerID}/${MODEL}) ==`);
+const lm = new WorkBuddyLanguageModel(MODEL, REGION);
 const { stream } = await lm.doStream({
   prompt: [
     { role: "system", content: "You are terse. Answer in one short sentence." },
