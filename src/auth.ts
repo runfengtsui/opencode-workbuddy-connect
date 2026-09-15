@@ -16,7 +16,7 @@ import {
   WORKBUDDY_UID_ENV,
 } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
-import { errorMessage, logPlugin } from "./log.js";
+import { errorMessage, logWarn } from "./log.js";
 
 export interface WorkBuddyCredentials {
   accessToken: string;
@@ -162,7 +162,7 @@ export function saveOwnStore(cred: WorkBuddyCredentials, storeName?: string): vo
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify({ version: 1, credential: cred }), { mode: 0o600 });
   } catch (error) {
-    logPlugin(`auth: could not persist credential (${errorMessage(error)})`);
+    logWarn(`auth: could not persist credential (${errorMessage(error)})`);
   }
 }
 
@@ -287,7 +287,7 @@ export async function resolveWorkBuddyCredentials(
   if (isFresh(cred)) return cred;
 
   const refreshed = await refreshWorkBuddyToken(cred, baseUrlFor(cred, options)).catch((error) => {
-    logPlugin(`auth: refresh failed (${errorMessage(error)})`);
+    logWarn(`auth: refresh failed (${errorMessage(error)})`);
     return undefined;
   });
   if (refreshed) {

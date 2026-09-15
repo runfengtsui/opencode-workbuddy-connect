@@ -170,7 +170,23 @@ The plugin ships an account tool — `workbuddy_account` for the international i
 
 ## Troubleshooting
 
-Every plugin log line is prefixed `[workbuddy]` and written to stderr — visible in `opencode run` output.
+The plugin keeps the terminal clean. Lifecycle summaries (startup, model
+registration, `setup[v2]` phases) go to **opencode's own log file** via
+`client.app.log`, not to stderr. Only `warn`/`error` lines — prefixed
+`[workbuddy]` and written to stderr — surface in your terminal, because those
+are the ones that need you.
+
+- **`[workbuddy] warn: ...` / `[workbuddy] error: ...` in the terminal** —
+  a real problem: refresh failed, login failed, credential rejected. Act on it.
+- **Need the full trace** — set `WORKBUDDY_DEBUG=1` to mirror every level
+  (debug/info/warn/error) to stderr, for CLI debugging.
+- **Adjust what lands in the log file** — `WORKBUDDY_LOG=debug|info|warn|error`
+  moves the floor (default `info`); `debug` adds the per-request detail (token
+  refreshes that recovered, handler hits, dropped SSE lines). `WORKBUDDY_LOG=off`
+  mutes the plugin entirely, terminal and file both.
+
+Find the file under `~/.local/share/opencode/log/` and grep it for
+`registered 11 models` or `setup[v2]`.
 
 - **`401`/`403` even after refresh** — the desktop session expired: sign in to the WorkBuddy desktop app again, or use `opencode auth login`.
 - **Browser Login never completes** — the account belongs to the *other* endpoint. Pick the matching integration point (`WorkBuddy AI` vs `WorkBuddy AI (CN)`); each one opens its own login page, so no `WORKBUDDY_BASE_URL` juggling is needed.
@@ -181,16 +197,17 @@ Every plugin log line is prefixed `[workbuddy]` and written to stderr — visibl
 
 ## Tests
 
-Live, network-backed smoke tests against your own desktop credential:
+Smoke tests, split into an offline contract group and a live group:
 
 ```bash
 node test/plugin.mjs        # registration contract, both integration points (no network)
 node test/stream.mjs        # SSE framing regression (no network)
+node test/log.mjs           # logging policy: clean terminal, trace to the log file (no network)
 node test/live.mjs hy3      # stream + usage through the real model
 node test/tools.mjs         # two-turn tool round-trip
 ```
 
-`live.mjs` / `tools.mjs` need a signed-in credential; `plugin.mjs` and `stream.mjs` are offline.
+`live.mjs` / `tools.mjs` need a signed-in credential; `plugin.mjs`, `stream.mjs` and `log.mjs` are offline.
 
 ## Development
 

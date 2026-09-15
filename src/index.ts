@@ -1,4 +1,4 @@
-import { type Hooks, type PluginOptions, tool } from "@opencode-ai/plugin";
+import { type Hooks, type PluginInput, type PluginOptions, tool } from "@opencode-ai/plugin";
 import type { PluginContext } from "@opencode-ai/plugin/v2/promise";
 import {
   parseWorkBuddyAuth,
@@ -21,7 +21,7 @@ import {
 } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
 import { createWorkBuddy, WorkBuddyLanguageModel } from "./language-model.js";
-import { errorMessage, logPlugin } from "./log.js";
+import { errorMessage, logError, logInfo, logPlugin, installLogSink, type LogClient } from "./log.js";
 import { displayName, WORKBUDDY_MODELS, type WorkBuddyModelDefinition } from "./models.js";
 
 export { createWorkBuddy, WorkBuddyLanguageModel };
@@ -176,7 +176,7 @@ function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
     current.models[model.id] = { ...legacyModelConfig(model), ...(current.models[model.id] ?? {}) };
   }
   if (options?.setDefault === true && !cfg.model) cfg.model = `${id}/hy3`;
-  logPlugin(`legacy: registered ${WORKBUDDY_MODELS.length} models (1M tier included)`);
+  logInfo(`legacy: registered ${WORKBUDDY_MODELS.length} models (1M tier included)`);
 
   // Subagents on the free model; the main agent keeps the user's choice.
   cfg.agent ??= {};
@@ -254,7 +254,7 @@ function storedToOptions(stored: StoredCredentialShape): WorkBuddyProviderOption
 async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promise<void> {
   const id = providerID(opts);
   const name = providerName(opts);
-  logPlugin(`setup[v2]: begin (${id})`);
+  logInfo(`setup[v2]: begin (${id})`);
   try {
     await ctx.integration.transform((integrations) => {
       integrations.update(id, (integration) => {
@@ -304,13 +304,13 @@ async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promis
         });
         logPlugin(`setup[v2]: language handler hit model=${event.model.id}`);
       } catch (error) {
-        logPlugin(`setup[v2]: language handler error: ${errorMessage(error)}`);
+        logError(`setup[v2]: language handler error: ${errorMessage(error)}`);
         throw error;
       }
     });
     logPlugin("setup[v2]: complete");
   } catch (error) {
-    logPlugin(`setup[v2]: FAILED -- ${errorMessage(error)}`);
+    logError(`setup[v2]: FAILED -- ${errorMessage(error)}`);
     throw error;
   }
 }
@@ -363,13 +363,13 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
                       metadata: { userID: cred.uid, baseUrl: cred.domain ? `https://${cred.domain}` : base },
                     };
                   } catch (error) {
-                    logPlugin(`auth: browser login failed: ${error instanceof Error ? error.message : String(error)}`);
+                    logError(`auth: browser login failed: ${error instanceof Error ? error.message : String(error)}`);
                     return { type: "failed" as const };
                   }
                 },
               };
             } catch (error) {
-              logPlugin(`auth: login start failed: ${error instanceof Error ? error.message : String(error)}`);
+              logError(`auth: login start failed: ${error instanceof Error ? error.message : String(error)}`);
               return {
                 url: base,
                 instructions: `${name} login start failed; check WORKBUDDY_BASE_URL / provider options.`,
@@ -431,7 +431,12 @@ export function definePlugin(region: WorkBuddyRegion = "intl") {
   return {
     id: r.moduleID,
     setup: (ctx: PluginContext) => setupV2(ctx, withRegion(r, ctx.options)),
-    server: async (_input: unknown, options?: PluginOptions) => legacyHooks(withRegion(r, options)),
+    server: async (input: PluginInput, options?: PluginOptions) => {
+      // First thing that happens: route the trace into opencode's own log
+      // file so a normal session shows only real problems on screen.
+      installLogSink(input?.client as LogClient | undefined);
+      return legacyHooks(withRegion(r, options));
+    },
   };
 }
 

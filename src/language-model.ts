@@ -23,7 +23,7 @@ import {
 } from "./auth.js";
 import { flashMaxTokensCap, PROVIDER_ID } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
-import { errorMessage, logPlugin } from "./log.js";
+import { errorMessage, logPlugin, logWarn } from "./log.js";
 import { getModelDefinition, type WorkBuddyModelDefinition } from "./models.js";
 import { transformPrompt, transformTools, type WorkBuddyMessage, type WorkBuddyTool } from "./transform.js";
 
@@ -351,7 +351,7 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
       saveOwnStore(next, this.providerOptions.storeName);
       return next;
     } catch (error) {
-      logPlugin(`chat: renewal failed (${errorMessage(error)})`);
+      logWarn(`chat: renewal failed (${errorMessage(error)})`);
       return undefined;
     }
   }

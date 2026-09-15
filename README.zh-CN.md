@@ -163,7 +163,13 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 
 ## 排障
 
-插件日志行一律带 `[workbuddy]` 前缀、写到 stderr——在 `opencode run` 的输出里可见。
+插件会保持终端干净。生命周期摘要（启动、模型注册、`setup[v2]` 各阶段）通过 `client.app.log` 写进 **opencode 自己的日志文件**，而不是 stderr。只有带 `[workbuddy]` 前缀、写到 stderr 的 `warn`/`error` 行才会出现在终端里——因为那些才是需要你处理的。
+
+- **终端出现 `[workbuddy] warn: ...` / `[workbuddy] error: ...`** — 真实问题：刷新失败、登录失败、凭据被拒。需要处理。
+- **想看完整追踪** — 设 `WORKBUDDY_DEBUG=1`，把每个级别（debug/info/warn/error）都镜像到 stderr，便于命令行调试。
+- **调整写进日志文件的内容** — `WORKBUDDY_LOG=debug|info|warn|error` 移动下限（默认 `info`）；`debug` 会额外记录每次请求的细节（成功恢复的 token 刷新、handler 命中、被丢弃的 SSE 行）。`WORKBUDDY_LOG=off` 把插件彻底静音，终端和文件都不写。
+
+日志文件在 `~/.local/share/opencode/log/`，可用 `registered 11 models` 或 `setup[v2]` 去 grep。
 
 - **刷新之后仍然 `401`/`403`** — 桌面端会话过期：重新登录 WorkBuddy 桌面端，或用 `opencode auth login`。
 - **Browser Login 一直等不到结果** — 账号属于另一个站点。改选匹配的接入点（`WorkBuddy AI` 或 `WorkBuddy AI (CN)`）即可；每个接入点打开的是自己的登录页，不再需要折腾 `WORKBUDDY_BASE_URL`。
@@ -174,16 +180,17 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 
 ## 测试
 
-带真实网络、用你本机桌面端凭据的冒烟测试：
+冒烟测试：
 
 ```bash
 node test/plugin.mjs        # 注册契约，覆盖两个接入点（无网络）
 node test/stream.mjs        # SSE 分块回归测试（无网络）
+node test/log.mjs           # 日志策略：终端干净、追踪进日志文件（无网络）
 node test/live.mjs hy3      # 流式 + usage 走真实模型
 node test/tools.mjs         # 两轮工具往返
 ```
 
-`live.mjs` / `tools.mjs` 需要已登录凭据；`plugin.mjs` 与 `stream.mjs` 完全离线。
+`live.mjs` / `tools.mjs` 需要已登录凭据并走真实网络；`plugin.mjs`、`stream.mjs` 与 `log.mjs` 完全离线。
 
 ## 开发
 
