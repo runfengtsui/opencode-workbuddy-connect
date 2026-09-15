@@ -8,10 +8,14 @@ import {
   type WorkBuddyProviderOptions,
 } from "./auth.js";
 import {
+  CN_STORE_NAME,
+  INTL_STORE_NAME,
   PROVIDER_ID,
+  PROVIDER_ID_CN,
   PROVIDER_NAME,
   USER_AGENT,
   WORKBUDDY_BASE_URL_ENV,
+  WORKBUDDY_CN_BASE,
   WORKBUDDY_INTL_BASE,
   ZERO_COST,
 } from "./constants.js";
@@ -24,11 +28,58 @@ export { createWorkBuddy, WorkBuddyLanguageModel };
 
 type WorkBuddyPluginOptions = PluginOptions & {
   providerID?: string;
+  providerName?: string;
+  storeName?: string;
   setDefault?: boolean;
   apiKey?: string;
   userID?: string;
   baseUrl?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Integration points (接入点). AuthHook binds ONE provider per plugin instance,
+// so each region is its own instance: two plugin files, two createPlugin()
+// calls. Everything region-specific lives here.
+// ---------------------------------------------------------------------------
+
+interface Region {
+  /** opencode plugin module id -- must differ per instance. */
+  moduleID: string;
+  providerID: string;
+  providerName: string;
+  /** Own-credential-store file, so a CN login never clobbers an intl one. */
+  storeName: string;
+  /** Pinned login base. INTL leaves this unset so WORKBUDDY_BASE_URL still
+   * wins (legacy escape hatch); CN always pins *.workbuddy.cn. */
+  baseUrl?: string;
+}
+
+const INTL_REGION: Region = {
+  moduleID: "opencode-workbuddy-connect",
+  providerID: PROVIDER_ID,
+  providerName: PROVIDER_NAME,
+  storeName: INTL_STORE_NAME,
+};
+
+const CN_REGION: Region = {
+  moduleID: "opencode-workbuddy-connect-cn",
+  providerID: PROVIDER_ID_CN,
+  providerName: `${PROVIDER_NAME} (CN)`,
+  storeName: CN_STORE_NAME,
+  baseUrl: WORKBUDDY_CN_BASE,
+};
+
+/** Region defaults first, explicit plugin options on top (a tuple-form
+ * `[path, options]` entry or a hand-authored shim can override any field). */
+function withRegion(region: Region, options?: PluginOptions): WorkBuddyPluginOptions {
+  return {
+    providerID: region.providerID,
+    providerName: region.providerName,
+    storeName: region.storeName,
+    ...(region.baseUrl ? { baseUrl: region.baseUrl } : {}),
+    ...(options as WorkBuddyPluginOptions | undefined),
+  };
+}
 
 function optionString(options: PluginOptions | undefined, key: keyof WorkBuddyPluginOptions): string | undefined {
   const value = options?.[key];
@@ -37,6 +88,22 @@ function optionString(options: PluginOptions | undefined, key: keyof WorkBuddyPl
 
 function providerID(options?: PluginOptions): string {
   return optionString(options, "providerID") || PROVIDER_ID;
+}
+
+function providerName(options?: PluginOptions): string {
+  return optionString(options, "providerName") || PROVIDER_NAME;
+}
+
+// The login/refresh base URL: an explicit option (a pinned region sets one)
+// beats WORKBUDDY_BASE_URL, which beats the international default. A CN
+// desktop login (domain www.workbuddy.cn) is discovered at request time;
+// auth.ts routes chat/refresh from the credential's domain.
+function loginBase(options?: PluginOptions): string {
+  return (
+    optionString(options, "baseUrl") ||
+    readEnvSafe(WORKBUDDY_BASE_URL_ENV) ||
+    WORKBUDDY_INTL_BASE
+  ).replace(/\/+$/, "");
 }
 
 // The limits opencode acts on. context drives the window, input drives the
@@ -89,16 +156,21 @@ function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
   cfg.provider ??= {};
   cfg.provider[id] ??= {};
   const current = cfg.provider[id];
-  current.name ??= PROVIDER_NAME;
+  current.name ??= providerName(options);
   current.npm ??= import.meta.url;
   current.options ??= {};
+  // The npm loader calls createWorkBuddy(current.options); these three are
+  // what put the RIGHT store, host and provider label on every request.
+  if (current.options.providerID === undefined) current.options.providerID = id;
+  const store = optionString(options, "storeName");
+  if (store && current.options.storeName === undefined) current.options.storeName = store;
   const apiKey = optionString(options, "apiKey");
   if (apiKey && current.options.apiKey === undefined) current.options.apiKey = apiKey;
   const userID = optionString(options, "userID");
   if (userID && current.options.userID === undefined) current.options.userID = userID;
   const baseUrl = optionString(options, "baseUrl");
   if (baseUrl && current.options.baseUrl === undefined) current.options.baseUrl = baseUrl;
-  current.options.baseURL ??= loginBase();
+  current.options.baseURL ??= loginBase(options);
   current.models ??= {};
   for (const model of WORKBUDDY_MODELS) {
     current.models[model.id] = { ...legacyModelConfig(model), ...(current.models[model.id] ?? {}) };
@@ -122,7 +194,7 @@ function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
   ensureAgent("compaction", { model: `${id}/hy3` });
 }
 
-function v2ModelConfig(model: WorkBuddyModelDefinition) {
+function v2ModelConfig(model: WorkBuddyModelDefinition, options?: PluginOptions) {
   return {
     name: displayName(model),
     family: model.id,
@@ -134,7 +206,7 @@ function v2ModelConfig(model: WorkBuddyModelDefinition) {
       // puts WorkBuddyLanguageModel on the wire instead of the generic
       // openai-compatible client.
       package: import.meta.url,
-      url: loginBase(),
+      url: loginBase(options),
       settings: {},
     },
     capabilities: { tools: true, input: model.input, output: ["text"] },
@@ -145,15 +217,6 @@ function v2ModelConfig(model: WorkBuddyModelDefinition) {
     enabled: true,
     limit: modelLimit(model),
   };
-}
-
-// The login/refresh base URL. The international product is the default; a CN
-// desktop login (domain www.workbuddy.cn) is discovered from the desktop
-// auth file at request time -- only chat/refresh need the right host, and
-// auth.ts derives it from the credential. The browser-login picker needs an
-// explicit host, so override with WORKBUDDY_BASE_URL for CN.
-function loginBase(): string {
-  return (readEnvSafe(WORKBUDDY_BASE_URL_ENV) || WORKBUDDY_INTL_BASE).replace(/\/+$/, "");
 }
 
 interface StoredCredentialShape {
@@ -188,36 +251,37 @@ function storedToOptions(stored: StoredCredentialShape): WorkBuddyProviderOption
   return {};
 }
 
-async function setupV2(ctx: PluginContext): Promise<void> {
-  const id = providerID(ctx.options);
-  logPlugin("setup[v2]: begin");
+async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promise<void> {
+  const id = providerID(opts);
+  const name = providerName(opts);
+  logPlugin(`setup[v2]: begin (${id})`);
   try {
     await ctx.integration.transform((integrations) => {
       integrations.update(id, (integration) => {
-        integration.name = PROVIDER_NAME;
+        integration.name = name;
       });
       integrations.method.update({
         integrationID: id,
-        method: { type: "key", label: "WorkBuddy Access Token (token|uid|base optional)" },
+        method: { type: "key", label: `${name} Access Token (token|uid|base optional)` },
       });
     });
     logPlugin("setup[v2]: integration ok");
 
     await ctx.catalog.transform((catalog) => {
       catalog.provider.update(id, (provider) => {
-        provider.name = PROVIDER_NAME;
+        provider.name = name;
         provider.integrationID = id;
-        provider.api = { type: "aisdk", package: import.meta.url, url: loginBase(), settings: {} };
+        provider.api = { type: "aisdk", package: import.meta.url, url: loginBase(opts), settings: {} };
         provider.request = { headers: {}, body: {} };
-        const apiKey = optionString(ctx.options, "apiKey");
+        const apiKey = optionString(opts, "apiKey");
         if (apiKey) provider.request.body.apiKey = apiKey;
       });
       for (const model of WORKBUDDY_MODELS) {
         catalog.model.update(id, model.id, (draft) => {
-          Object.assign(draft, v2ModelConfig(model));
+          Object.assign(draft, v2ModelConfig(model, opts));
         });
       }
-      if (ctx.options?.setDefault === true) catalog.model.default.set(id, "hy3");
+      if (opts.setDefault === true) catalog.model.default.set(id, "hy3");
     });
     logPlugin("setup[v2]: catalog ok");
 
@@ -230,11 +294,13 @@ async function setupV2(ctx: PluginContext): Promise<void> {
             active ? ((await ctx.integration.connection.resolve(active)) as StoredCredentialShape | undefined) : undefined,
           )
           .catch(() => undefined);
-        const options = connection ? storedToOptions(connection) : {};
+        const stored = connection ? storedToOptions(connection) : {};
         event.language = new WorkBuddyLanguageModel(String(event.model.api?.id ?? event.model.id), {
-          ...options,
-          apiKey: options.apiKey || optionString(ctx.options, "apiKey") || event.options.apiKey,
-          baseUrl: options.baseUrl || optionString(ctx.options, "baseUrl"),
+          ...stored,
+          apiKey: stored.apiKey || optionString(opts, "apiKey") || event.options.apiKey,
+          baseUrl: stored.baseUrl || optionString(opts, "baseUrl"),
+          storeName: stored.storeName || optionString(opts, "storeName"),
+          providerID: id,
         });
         logPlugin(`setup[v2]: language handler hit model=${event.model.id}`);
       } catch (error) {
@@ -249,35 +315,44 @@ async function setupV2(ctx: PluginContext): Promise<void> {
   }
 }
 
-function legacyHooks(options?: PluginOptions): Hooks {
+function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
   const id = providerID(options);
+  const name = providerName(options);
+  const store = optionString(options, "storeName");
+  const accountTool = `${id.replace(/-/g, "_")}_account`;
   return {
     config: async (cfg) => applyLegacyConfig(cfg as unknown as LegacyConfig, options),
     auth: {
       provider: id,
       loader: async (auth) => {
         const stored = (await auth()) as StoredCredentialShape | undefined;
-        return stored ? storedToOptions(stored) : {};
+        const resolved: WorkBuddyProviderOptions = {
+          ...(stored ? storedToOptions(stored) : {}),
+          baseUrl: (stored ? storedToOptions(stored).baseUrl : undefined) || optionString(options, "baseUrl"),
+          storeName: store,
+          providerID: id,
+        };
+        return resolved as Record<string, any>;
       },
       methods: [
         {
           type: "api",
-          label: "Access Token (token|uid|base optional)",
+          label: `${name} Access Token (token|uid|base optional)`,
         },
         {
           type: "oauth",
-          label: "Browser Login (WorkBuddy AI)",
+          label: `Browser Login (${name})`,
           authorize: async () => {
-            const base = loginBase();
+            const base = loginBase(options);
             try {
               const { state, authUrl } = await startPluginLogin(base);
               return {
                 url: authUrl,
-                instructions: "Complete the WorkBuddy login in the browser, then return to opencode.",
+                instructions: `Complete the ${name} login in the browser, then return to opencode.`,
                 method: "auto" as const,
                 callback: async () => {
                   try {
-                    const cred = await pollPluginCredential(state, base);
+                    const cred = await pollPluginCredential(state, base, store);
                     return {
                       type: "success" as const,
                       provider: id,
@@ -295,29 +370,41 @@ function legacyHooks(options?: PluginOptions): Hooks {
               };
             } catch (error) {
               logPlugin(`auth: login start failed: ${error instanceof Error ? error.message : String(error)}`);
-              return { url: base, instructions: "WorkBuddy login start failed; check WORKBUDDY_BASE_URL.", method: "auto" as const, callback: async () => ({ type: "failed" as const }) };
+              return {
+                url: base,
+                instructions: `${name} login start failed; check WORKBUDDY_BASE_URL / provider options.`,
+                method: "auto" as const,
+                callback: async () => ({ type: "failed" as const }),
+              };
             }
           },
         },
       ],
     },
     tool: {
-      workbuddy_account: tool({
+      [accountTool]: tool({
         description:
-          "Show the WorkBuddy credential currently in effect: token shape (never the value), account uid, " +
+          `Show the ${name} credential currently in effect: token shape (never the value), account uid, ` +
           "expiry, resolved base URL and the credential source. Use when auth fails or the user asks which " +
-          "WorkBuddy account is active.",
+          `${name} account is active.`,
         args: {},
         execute: async () => {
           try {
-            const cred = await resolveWorkBuddyCredentials({});
-            const base = cred.domain ? `https://${cred.domain}` : WORKBUDDY_INTL_BASE;
+            const cred = await resolveWorkBuddyCredentials({
+              apiKey: optionString(options, "apiKey"),
+              userID: optionString(options, "userID"),
+              baseUrl: optionString(options, "baseUrl"),
+              storeName: store,
+              providerID: id,
+            });
+            const base = cred.domain ? `https://${cred.domain}` : loginBase(options);
             return {
               output:
+                `provider=${id}\n` +
                 `uid=${cred.uid || "(none)"} nickname=${cred.nickname ?? "(none)"}\n` +
                 `expires ${cred.expiresAtMs ? new Date(cred.expiresAtMs).toISOString() : "unknown"}\n` +
                 `base ${base} · UA ${USER_AGENT}`,
-              data: { uid: cred.uid, expiresAtMs: cred.expiresAtMs, base },
+              data: { providerID: id, uid: cred.uid, expiresAtMs: cred.expiresAtMs, base },
             };
           } catch (error) {
             return { output: `Not authenticated: ${error instanceof Error ? error.message : String(error)}`, data: { ok: false } };
@@ -328,13 +415,20 @@ function legacyHooks(options?: PluginOptions): Hooks {
   };
 }
 
-const plugin = {
-  id: "opencode-workbuddy-connect",
-  setup: setupV2,
-  server: async (_input: unknown, options?: PluginOptions) => legacyHooks(options),
-};
+export type WorkBuddyRegion = "intl" | "cn";
 
-export default plugin;
+/** Build one integration point. AuthHook binds a single provider, so the
+ * international and CN endpoints are two instances of this module. */
+export function createPlugin(region: WorkBuddyRegion = "intl") {
+  const r = region === "cn" ? CN_REGION : INTL_REGION;
+  return {
+    id: r.moduleID,
+    setup: (ctx: PluginContext) => setupV2(ctx, withRegion(r, ctx.options)),
+    server: async (_input: unknown, options?: PluginOptions) => legacyHooks(withRegion(r, options)),
+  };
+}
+
+export default createPlugin("intl");
 
 // Re-exported for tooling that wants the credential-file parser.
 export { parseWorkBuddyAuth };

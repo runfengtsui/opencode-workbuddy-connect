@@ -14,13 +14,14 @@ import {
 import {
   baseUrlFor,
   chatHeaders,
+  connectName,
   refreshWorkBuddyToken,
   resolveWorkBuddyCredentials,
   saveOwnStore,
   type WorkBuddyCredentials,
   type WorkBuddyProviderOptions,
 } from "./auth.js";
-import { flashMaxTokensCap } from "./constants.js";
+import { flashMaxTokensCap, PROVIDER_ID } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
 import { errorMessage, logPlugin } from "./log.js";
 import { getModelDefinition, type WorkBuddyModelDefinition } from "./models.js";
@@ -207,7 +208,12 @@ function buildRequestBody(
   return { body, warnings };
 }
 
-function throwWorkBuddyApiError(status: number, url: string, body: string): never {
+function throwWorkBuddyApiError(
+  status: number,
+  url: string,
+  body: string,
+  providerOptions: WorkBuddyProviderOptions = {},
+): never {
   let message = `WorkBuddy API error ${status}`;
   try {
     const parsed = JSON.parse(body) as { error?: { message?: string }; msg?: string; message?: string };
@@ -217,7 +223,7 @@ function throwWorkBuddyApiError(status: number, url: string, body: string): neve
     /* non-JSON error body */
   }
   if (status === 401 || status === 403) {
-    message += " — the credential was rejected. Re-run /connect workbuddy or refresh the desktop login.";
+    message += ` — the credential was rejected. Re-run /connect ${connectName(providerOptions)} or refresh the desktop login.`;
   }
   throw new APICallError({
     message,
@@ -235,8 +241,12 @@ function throwWorkBuddyApiError(status: number, url: string, body: string): neve
 
 export class WorkBuddyLanguageModel implements LanguageModelV3 {
   readonly specificationVersion = "v3" as const;
-  readonly provider = "workbuddy";
   readonly supportedUrls = { "image/*": [/^data:/, /^https?:/] };
+
+  /** Region-aware so a rejected CN credential reports `/connect workbuddy-cn`. */
+  get provider(): string {
+    return this.providerOptions.providerID || PROVIDER_ID;
+  }
 
   constructor(
     readonly modelId: string,
@@ -317,14 +327,19 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
               return this.streamOf(retry.response, body, warnings, detachAbort);
             }
             detachAbort();
-            throwWorkBuddyApiError(retry.response.status, retry.url, await retry.response.text().catch(() => ""));
+            throwWorkBuddyApiError(
+              retry.response.status,
+              retry.url,
+              await retry.response.text().catch(() => ""),
+              this.providerOptions,
+            );
           } catch (retryError) {
             detachAbort();
             throw retryError;
           }
         }
       }
-      throwWorkBuddyApiError(status, opened.url, text);
+      throwWorkBuddyApiError(status, opened.url, text, this.providerOptions);
     }
     return this.streamOf(opened.response, body, warnings, detachAbort);
   }
@@ -332,8 +347,8 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
   private async renew(cred: WorkBuddyCredentials): Promise<WorkBuddyCredentials | undefined> {
     if (!cred.refreshToken) return undefined;
     try {
-      const next = await refreshWorkBuddyToken(cred);
-      saveOwnStore(next);
+      const next = await refreshWorkBuddyToken(cred, baseUrlFor(cred, this.providerOptions));
+      saveOwnStore(next, this.providerOptions.storeName);
       return next;
     } catch (error) {
       logPlugin(`chat: renewal failed (${errorMessage(error)})`);
@@ -351,7 +366,7 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        ...chatHeaders(credentials),
+        ...chatHeaders(credentials, this.providerOptions),
         "Content-Type": "application/json",
         Accept: "text/event-stream",
         "Cache-Control": "no-cache",

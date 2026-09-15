@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import {
   AUTH_FILE_CANDIDATES,
   INTL_STORE_NAME,
+  PROVIDER_ID,
+  PROVIDER_ID_CN,
   REFRESH_SKEW_MS,
   USER_AGENT,
   WORKBUDDY_AUTH_FILE_ENV,
@@ -37,6 +39,9 @@ export interface WorkBuddyProviderOptions {
    * own credential store, so CN and international logins never clobber each
    * other. Defaults to the legacy `workbuddy-auth.json`. */
   storeName?: string;
+  /** opencode provider id of the integration point in effect (`workbuddy` /
+   * `workbuddy-cn`); used for messages that tell the user what to re-run. */
+  providerID?: string;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -235,6 +240,13 @@ function isFresh(cred: WorkBuddyCredentials): boolean {
   return Date.now() + REFRESH_SKEW_MS < cred.expiresAtMs;
 }
 
+/** The opencode provider id this set of options belongs to. Falls back to the
+ * base URL so a hand-wired CN integration still gets the right hints. */
+export function connectName(options: WorkBuddyProviderOptions): string {
+  if (options.providerID) return options.providerID;
+  return regionOfBaseUrl(options.baseUrl) === "cn" ? PROVIDER_ID_CN : PROVIDER_ID;
+}
+
 /**
  * Credential resolution order (reference parity):
  *   1. provider options apiKey (+ userID)
@@ -260,16 +272,16 @@ export async function resolveWorkBuddyCredentials(
     };
   }
 
+  const region = connectName(options) === PROVIDER_ID_CN ? "cn" : "intl";
   const own = readOwnStore(options.storeName);
-  const desktop = readDesktopCredential(regionOfBaseUrl(options.baseUrl));
+  const desktop = readDesktopCredential(region);
   let cred: WorkBuddyCredentials | undefined;
   if (own && desktop) cred = own.expiresAtMs >= desktop.expiresAtMs ? own : desktop;
   else cred = own ?? desktop;
   if (!cred) {
     throw new Error(
-      `WorkBuddy credentials not found. Run ${
-        regionOfBaseUrl(options.baseUrl) === "cn" ? "`/connect workbuddy-cn`" : "`/connect workbuddy`"
-      } in opencode, log in to the WorkBuddy desktop app, or set WORKBUDDY_TOKEN.`,
+      `WorkBuddy credentials not found. Run \`/connect ${connectName(options)}\` in opencode, ` +
+        "log in to the WorkBuddy desktop app, or set WORKBUDDY_TOKEN.",
     );
   }
   if (isFresh(cred)) return cred;
@@ -286,7 +298,9 @@ export async function resolveWorkBuddyCredentials(
   // and let the request path surface a rejection; a transient outage should
   // not block a still-usable credential.
   if (cred.expiresAtMs > Date.now()) return cred;
-  throw new Error("WorkBuddy access token expired and refresh failed. Re-run /connect workbuddy.");
+  throw new Error(
+    `WorkBuddy access token expired and refresh failed. Re-run /connect ${connectName(options)}.`,
+  );
 }
 
 export function baseUrlFor(cred: WorkBuddyCredentials, options: WorkBuddyProviderOptions = {}): string {
@@ -308,8 +322,11 @@ function browserHeaders(base: string): Record<string, string> {
 }
 
 /** The header set a chat (or billing) request must carry. */
-export function chatHeaders(cred: WorkBuddyCredentials): Record<string, string> {
-  const base = baseUrlFor(cred);
+export function chatHeaders(
+  cred: WorkBuddyCredentials,
+  options: WorkBuddyProviderOptions = {},
+): Record<string, string> {
+  const base = baseUrlFor(cred, options);
   return {
     Accept: "application/json, text/plain, */*",
     "X-Requested-With": "XMLHttpRequest",
@@ -396,6 +413,7 @@ function cryptoRandom(): string {
 export async function pollPluginCredential(
   state: string,
   base: string,
+  storeName?: string,
   shouldAbort?: () => boolean,
 ): Promise<WorkBuddyCredentials> {
   const deadline = Date.now() + 15 * 60 * 1000;
@@ -424,11 +442,11 @@ export async function pollPluginCredential(
       refreshToken: optionalString(data.refreshToken) ?? "",
       expiresAtMs: typeof data.expiresIn === "number" && data.expiresIn > 0 ? Date.now() + data.expiresIn * 1000 : 0,
       uid,
-      domain: optionalString(data.domain) ?? "www.workbuddy.ai",
+      domain: optionalString(data.domain) ?? hostOf(base),
       nickname: optionalString(data.nickname) ?? optionalString(jwt.email) ?? optionalString(jwt.name),
       ...(enterpriseId ? { enterpriseId } : {}),
     };
-    saveOwnStore(cred);
+    saveOwnStore(cred, storeName);
     return cred;
   }
   throw new Error("workbuddy login timed out");
