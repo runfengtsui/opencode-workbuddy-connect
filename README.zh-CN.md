@@ -169,6 +169,7 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 - **Browser Login 一直等不到结果** — 账号属于另一个站点。改选匹配的接入点（`WorkBuddy AI` 或 `WorkBuddy AI (CN)`）即可；每个接入点打开的是自己的登录页，不再需要折腾 `WORKBUDDY_BASE_URL`。
 - **`WorkBuddy credentials not found. Run /connect workbuddy-cn`** — 该接入点还没登录过。它与 `workbuddy` 的存储本就是分开的，两个站点各登录一次。
 - **flash 模型答非所问、输出极短循环** — 防护封顶已生效；若仍异常，换非 flash 模型。
+- **回答变成一个 token 一行** — 每个流式 chunk 都错误地关闭了文本块（见 `test/stream.mjs`）。已修复；若上游变更后复发，跑 `node test/stream.mjs` 对比 `blocks:` 行——一段连续回答应当只有一对 `text-start`/`text-end`。
 - **`languageModel is not a function`** — 要么 `dist/` 未构建或已过期（跑 `npm run build`）；要么你自己的入口文件里 `create*` 导出排在了 `createWorkBuddy` 前面：opencode 的旧版 provider loader 调用模块的**第一个** `create*` 导出并期望拿到 AI-SDK provider，所以该前缀已被占用。入口文件请用导出的 `definePlugin()`。
 
 ## 测试
@@ -176,10 +177,13 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 带真实网络、用你本机桌面端凭据的冒烟测试：
 
 ```bash
-node test/plugin.mjs        # 注册契约（无网络）
+node test/plugin.mjs        # 注册契约，覆盖两个接入点（无网络）
+node test/stream.mjs        # SSE 分块回归测试（无网络）
 node test/live.mjs hy3      # 流式 + usage 走真实模型
 node test/tools.mjs         # 两轮工具往返
 ```
+
+`live.mjs` / `tools.mjs` 需要已登录凭据；`plugin.mjs` 与 `stream.mjs` 完全离线。
 
 ## 开发
 

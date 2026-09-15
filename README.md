@@ -176,6 +176,7 @@ Every plugin log line is prefixed `[workbuddy]` and written to stderr — visibl
 - **Browser Login never completes** — the account belongs to the *other* endpoint. Pick the matching integration point (`WorkBuddy AI` vs `WorkBuddy AI (CN)`); each one opens its own login page, so no `WORKBUDDY_BASE_URL` juggling is needed.
 - **`WorkBuddy credentials not found. Run /connect workbuddy-cn`** — that integration point has never logged in. Its store is separate from `workbuddy`'s by design; sign in once per endpoint.
 - **Flash models answering with tiny loops** — intended guard is active; if it still misbehaves, pick a non-flash model.
+- **Answer renders as one token per line** — each streamed chunk was closing the open text block (see `test/stream.mjs`). Fixed; if it reappears after an upstream change, run `node test/stream.mjs` and compare the `blocks:` line — one contiguous answer must be exactly one `text-start`/`text-end` pair.
 - **`languageModel is not a function`** — either you're importing an unbuilt `dist/` (run `npm run build`), or your own entry file exports something named `create*` before `createWorkBuddy`: opencode's legacy provider loader calls the module's **first** `create*` export and expects an AI-SDK provider, so that prefix is reserved. Use the exported `definePlugin()` for entry files.
 
 ## Tests
@@ -183,10 +184,13 @@ Every plugin log line is prefixed `[workbuddy]` and written to stderr — visibl
 Live, network-backed smoke tests against your own desktop credential:
 
 ```bash
-node test/plugin.mjs        # registration contract (no network)
+node test/plugin.mjs        # registration contract, both integration points (no network)
+node test/stream.mjs        # SSE framing regression (no network)
 node test/live.mjs hy3      # stream + usage through the real model
 node test/tools.mjs         # two-turn tool round-trip
 ```
+
+`live.mjs` / `tools.mjs` need a signed-in credential; `plugin.mjs` and `stream.mjs` are offline.
 
 ## Development
 
