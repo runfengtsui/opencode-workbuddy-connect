@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   AUTH_FILE_CANDIDATES,
+  INTL_STORE_NAME,
   REFRESH_SKEW_MS,
   USER_AGENT,
   WORKBUDDY_AUTH_FILE_ENV,
@@ -32,6 +33,10 @@ export interface WorkBuddyProviderOptions {
   userID?: string;
   /** Base URL override. Default derives from the credential's domain. */
   baseUrl?: string;
+  /** File name (under the opencode config dir) of THIS integration point's
+   * own credential store, so CN and international logins never clobber each
+   * other. Defaults to the legacy `workbuddy-auth.json`. */
+  storeName?: string;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -129,24 +134,26 @@ function safeJson(text: string): unknown {
   }
 }
 
-/** The credential the browser login stored, in opencode's config dir. */
-function ownStorePath(): string {
+/** The credential a browser login stored, in opencode's config dir. One file
+ * per integration point (intl vs CN) so the two logins never clobber each other. */
+function ownStorePath(storeName?: string): string {
   const base = readEnvSafe("XDG_CONFIG_HOME") || join(homedir(), ".config");
-  return join(base, "opencode", "workbuddy-auth.json");
+  return join(base, "opencode", storeName || INTL_STORE_NAME);
 }
 
-function readOwnStore(): WorkBuddyCredentials | undefined {
+function readOwnStore(storeName?: string): WorkBuddyCredentials | undefined {
   try {
-    if (!existsSync(ownStorePath())) return undefined;
-    return parseOwnStore(readFileSync(ownStorePath(), "utf8"));
+    const file = ownStorePath(storeName);
+    if (!existsSync(file)) return undefined;
+    return parseOwnStore(readFileSync(file, "utf8"));
   } catch {
     return undefined;
   }
 }
 
-export function saveOwnStore(cred: WorkBuddyCredentials): void {
+export function saveOwnStore(cred: WorkBuddyCredentials, storeName?: string): void {
   try {
-    const file = ownStorePath();
+    const file = ownStorePath(storeName);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify({ version: 1, credential: cred }), { mode: 0o600 });
   } catch (error) {
@@ -175,12 +182,47 @@ function desktopCandidates(): string[] {
   return files;
 }
 
-function readDesktopCredential(): WorkBuddyCredentials | undefined {
+function hostOf(url: string): string {
+  const value = url.trim();
+  if (value === "") return "";
+  try {
+    return new URL(value.startsWith("http") ? value : `https://${value}`).hostname.toLowerCase();
+  } catch {
+    return value.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
+  }
+}
+
+function isCnHost(host: string): boolean {
+  return host === "workbuddy.cn" || host.endsWith(".workbuddy.cn");
+}
+
+/** Which integration point a base URL belongs to. An unconfigured base is the
+ * international one, which is also the legacy behaviour. */
+function regionOfBaseUrl(baseUrl: string | undefined): "cn" | "intl" {
+  const host = hostOf(baseUrl || readEnvSafe(WORKBUDDY_BASE_URL_ENV) || WORKBUDDY_INTL_BASE);
+  return isCnHost(host) ? "cn" : "intl";
+}
+
+/**
+ * Desktop auth files are shared by every WorkBuddy desktop install, so a
+ * credential is only usable by the integration point that owns its domain:
+ * a `*.workbuddy.cn` token must never be sent to the international endpoint
+ * (or the other way round). A file without a domain is treated as
+ * international, matching the pre-CN behaviour.
+ */
+function desktopMatchesRegion(cred: WorkBuddyCredentials, region: "cn" | "intl"): boolean {
+  if (!cred.domain) return region === "intl";
+  return isCnHost(hostOf(cred.domain)) === (region === "cn");
+}
+
+function readDesktopCredential(
+  region: "cn" | "intl",
+): WorkBuddyCredentials | undefined {
   for (const path of desktopCandidates()) {
     try {
       if (!existsSync(path)) continue;
       const cred = parseWorkBuddyAuth(readFileSync(path, "utf8"));
-      if (cred) return cred;
+      if (cred && desktopMatchesRegion(cred, region)) return cred;
     } catch {
       /* unreadable candidate -- fall through */
     }
@@ -218,24 +260,26 @@ export async function resolveWorkBuddyCredentials(
     };
   }
 
-  const own = readOwnStore();
-  const desktop = readDesktopCredential();
+  const own = readOwnStore(options.storeName);
+  const desktop = readDesktopCredential(regionOfBaseUrl(options.baseUrl));
   let cred: WorkBuddyCredentials | undefined;
   if (own && desktop) cred = own.expiresAtMs >= desktop.expiresAtMs ? own : desktop;
   else cred = own ?? desktop;
   if (!cred) {
     throw new Error(
-      "WorkBuddy credentials not found. Run `/connect workbuddy` in opencode, log in to the WorkBuddy desktop app, or set WORKBUDDY_TOKEN.",
+      `WorkBuddy credentials not found. Run ${
+        regionOfBaseUrl(options.baseUrl) === "cn" ? "`/connect workbuddy-cn`" : "`/connect workbuddy`"
+      } in opencode, log in to the WorkBuddy desktop app, or set WORKBUDDY_TOKEN.`,
     );
   }
   if (isFresh(cred)) return cred;
 
-  const refreshed = await refreshWorkBuddyToken(cred).catch((error) => {
+  const refreshed = await refreshWorkBuddyToken(cred, baseUrlFor(cred, options)).catch((error) => {
     logPlugin(`auth: refresh failed (${errorMessage(error)})`);
     return undefined;
   });
   if (refreshed) {
-    saveOwnStore(refreshed);
+    saveOwnStore(refreshed, options.storeName);
     return refreshed;
   }
   // Refresh failed. If the old token is not yet hard-expired, spend it anyway

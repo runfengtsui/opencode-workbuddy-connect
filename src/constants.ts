@@ -1,8 +1,15 @@
 export const PROVIDER_ID = "workbuddy";
+export const PROVIDER_ID_CN = "workbuddy-cn";
 export const PROVIDER_NAME = "WorkBuddy AI";
 
 export const WORKBUDDY_INTL_BASE = "https://www.workbuddy.ai";
+export const WORKBUDDY_CN_BASE = "https://www.workbuddy.cn";
 export const USER_AGENT = "CLI/2.63.2 CodeBuddy/2.63.2";
+
+// Own-credential-store file names (under $XDG_CONFIG_HOME/opencode). One per
+// integration point so a CN login never clobbers an international login.
+export const INTL_STORE_NAME = "workbuddy-auth.json";
+export const CN_STORE_NAME = "workbuddy-cn-auth.json";
 
 export const WORKBUDDY_AUTH_FILE_ENV = "WORKBUDDY_AUTH_FILE";
 export const WORKBUDDY_BASE_URL_ENV = "WORKBUDDY_BASE_URL";
