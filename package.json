@@ -1,0 +1,30 @@
+{
+  "name": "opencode-workbuddy-connect",
+  "version": "0.1.0",
+  "description": "WorkBuddy AI provider plugin for opencode",
+  "keywords": ["ai-sdk-provider", "opencode", "opencode-plugin", "workbuddy", "codebuddy"],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@ai-sdk/provider": "3.0.8",
+    "@opencode-ai/plugin": "1.17.13",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.2"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.17.0"
+  }
+}
