@@ -8,10 +8,12 @@
 
 ## 特性
 
-- **真实 1M 上下文** — `deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-v4.1-flash`、`glm-5.2`、`kimi-k3-1`、`hy4-preview-f` 以 `limit.context = limit.input = 1_000_000` 注册，opencode 会在约 1M token 处才触发压缩，而不是默认的 200k 断崖。1M 是这些模型的原生窗口，不需要任何额外线上参数。
+- **真实 1M 上下文** — 所有 1M 档模型都以 `limit.context = limit.input = 1_000_000` 注册，opencode 会在约 1M token 处才触发压缩，而不是默认的 200k 断崖。1M 是这些模型的原生窗口，不需要任何额外线上参数。国际版有 6 个（`deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-v4.1-flash`、`glm-5.2`、`kimi-k3-1`、`hy4-preview-f`），国内版有 10 个（`hy4-preview`、`hy4-preview-x`、`glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`kimi-k3-1`、`kimi-k2.8-preview`、`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-v4-pro`）。
+- **实时模型发现** — 插件会去问网关：*你的账号*实际买得到哪些模型、真实 token 预算各是多少，并把结果叠加到内置的区域专属表之上。WorkBuddy 改名、上新或调整上下文窗口后无需更新插件即可生效，且任何发现失败都不可能影响认证。
 - **纯 OpenAI 兼容 SSE** — 直连 `https://www.workbuddy.{ai|cn}/v2/chat/completions`，`reasoning_content` 以原生思考流呈现。
 - **完整 agentic 工具调用** — 并行 tool call、工具参数增量流、`tool` 角色结果回传，均已对真实网关验证。
 - **凭据自动发现链** — 插件 options → 环境变量 → 自身存储 → 桌面端 auth 文件。与已登录的 WorkBuddy 桌面端共存时开箱即用。
+- **账号工具** — 按发放记录读取剩余积分（`_quota`）、领取每日签到（`_checkin`）、查看当前生效的凭据（`_account`）。完全不在请求路径上：所有失败都以消息返回而不是抛出，且两个 billing 工具都能用环境变量关掉，无需更新插件。
 - **认证自愈** — 401/403 会触发一次 token 刷新（走桌面端刷新接口）并自动重放请求一次。
 - **`opencode auth login` 浏览器登录** — OAuth 式登录 + 轮询取回凭据，落盘到 `~/.config/opencode/workbuddy-auth.json`。
 - **思考强度变体**（`low` / `medium` / `high` / `xhigh` / `max`），以 opencode model variant 暴露。
@@ -83,7 +85,7 @@ export default definePlugin("cn");
 以下来源按顺序取第一个命中的：
 
 1. **插件 options** — 在 provider（或 `opencode.json` 的插件条目）上配 `"options": { "apiKey": "<token>", "userID": "<uid>", "baseUrl": "https://www.workbuddy.cn" }`。
-2. **环境变量** — `WORKBUDDY_TOKEN` + `WORKBUDDY_UID`；可选 `WORKBUDDY_BASE_URL`、`WORKBUDDY_AUTH_FILE`。
+2. **环境变量** — 国际版接入点读 `WORKBUDDY_TOKEN` + `WORKBUDDY_UID`，国内版读 `WORKBUDDY_CN_TOKEN` + `WORKBUDDY_CN_UID`。这个拆分是刻意的：只用一个 token 变量的话，CN 凭据就会去签国际版请求，把一个你从没登录过的 provider 点亮。可选 `WORKBUDDY_BASE_URL`、`WORKBUDDY_AUTH_FILE`。
 3. **自身存储** — 上表中该接入点专属的文件（下面的浏览器登录会写入它，每次刷新成功也会更新它）。
 4. **桌面端 auth 文件** — 自动定位
    `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`
@@ -104,23 +106,75 @@ opencode auth login   # 选择 "WorkBuddy AI" 或 "WorkBuddy AI (CN)"
 
 ## 模型
 
-所有模型均支持图片输入、流式思考。使用时写作 `workbuddy/<id>`：
+每个接入点都有**自己的**模型表，因为两个站点在同一批名字下卖的是不同的目录。
+
+**`workbuddy`（国际版）** — 11 个模型，默认 `hy3`。11 个全部支持流式思考与图片输入：
 
 | 模型 | 上下文 | 最大输出 | 思考强度变体 | 备注 |
 |---|---|---|---|---|
-| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max | 单次输出封顶 16,384（循环防护） |
+| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max | |
 | `deepseek-v4-pro` | **1,000,000** | 50,000 | low…max | |
-| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low…max | 单次输出封顶 16,384（循环防护） |
+| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low…max | 免费；单次输出封顶 16,384（循环防护） |
 | `glm-5.2` | **1,000,000** | 48,000 | low…max | |
 | `kimi-k3-1` | **1,000,000** | 32,000 | low…max | |
-| `hy4-preview-f` | **1,000,000** | 64,000 | high | |
+| `hy4-preview-f` | **1,000,000** | 64,000 | high | 免费；仅国际版 |
 | `minimax-m3` | 512,000 | 128,000 | low…max | |
 | `kimi-k2.7` | 256,000 | 32,000 | low…max | |
 | `kimi-k2.5` | 256,000 | 32,000 | low…max | |
 | `glm-5.1` | 200,000 | 48,000 | low…max | |
-| `hy3` | 192,000 | 64,000 | low, high | |
+| `hy3` | 192,000 | 64,000 | low, high | 免费 |
 
-若存在桌面端的账号模型目录缓存 `~/.workbuddy-ai/cache/acc-product-config-v3.json`，插件会把它叠加到上表之上——新发布的模型无需更新插件即可出现。
+**`workbuddy-cn`（国内版）** — 29 个模型，默认 `hy3`。CN 目录是混合的：部分条目既不支持流式思考、也不接受图片输入，能力逐模型不同而非统一。以下为重点条目（完整列表在启动时发布）：
+
+| 模型 | 上下文 | 最大输出 | 思考强度变体 |
+|---|---|---|---|
+| `auto` | 168,000 | 32,000 | low…max |
+| `hy3` | 192,000 | 64,000 | low, high |
+| `hy3-x` | 192,000 | 64,000 | low, high |
+| `hy4-preview` | **1,000,000** | 64,000 | high |
+| `hy4-preview-x` | **1,000,000** | 64,000 | high |
+| `glm-5.3` | **1,000,000** | 64,000 | low, high, max |
+| `glm-5.3-flash` | **1,000,000** | 32,000 | low, high, max |
+| `glm-5.2` | **1,000,000** | 64,000 | low…max |
+| `kimi-k3-1` | **1,000,000** | 32,000 | low…max |
+| `kimi-k2.8-preview` | **1,000,000** | 64,000 | low, high, max |
+| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max |
+| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low, high, max |
+| `deepseek-v4-pro` | **1,000,000** | 128,000 | low…max |
+| `minimax-m3` | 512,000 | 64,000 | low…max |
+| `kimi-k2.7` | 256,000 | 32,000 | low…max |
+| `kimi-k2.5` | 164,000 | 32,000 | low…max |
+| … | 另有 13 个 | | |
+
+以上是*内置静态表*。插件启动时还会查询线上目录接口，用你的账号真正买得到的模型把它替换掉（见下文[模型发现](#模型发现)）。
+
+## 模型发现
+
+网关暴露的正是 WorkBuddy CLI 用的那个接口：
+
+```
+CN:    GET {baseUrl}/console/enterprises/personal/models
+Intl:  GET {baseUrl}/v2/enterprises/personal/models   （回退 /console）
+```
+
+两个接入点并不共用前缀：国际版网关对 `/console/...` 返回 `500`、对 `/v2/...` 返回 `200`，因此按顺序探测，先答应的胜出。单个失效前缀因此不可能让整个区域失去模型发现能力。
+
+它返回**你的**凭据实际可用的模型，以及网关侧真实的 token 预算——这是 WorkBuddy 改名或调整上下文窗口之后，模型表还能保持准确的唯一办法。插件在启动时（最多每小时一次）拉取它，把结果按区域写进 `~/.cache/opencode/` 下的磁盘缓存，然后应用：
+
+- **模型 id 以接口为准**：接口不列的模型就不再提供，新出现的就会提供。
+- **数字**（`contextWindow`、`maxOutputTokens`、`credits`）取自网关。比如 `kimi-k2.5` 其实是 164k 而不是 256k，只有这里能知道。
+- **思考强度档位**在接口沉默时回落到静态表。接口只给部分模型列 `supportedEfforts`；若像 `hy3`（实际只接受 `low`/`high`）那样凭空补出完整 `low…max` 阶梯，只会换来 `400 invalid effort`。因此"缺省"按**未知**处理，而不是"五档全支持"。
+
+发现环节无论如何都不可能搞坏认证。500、超时、空响应，或小得看起来被截断的响应，都只记一行日志然后忽略，继续提供上一份好表——最坏情况是静态表。失败后退回 60 秒，避免每次启动都去敲一个坏掉的接口。CN 接口已确认实时可用；国际版 `/v2` 路径取自参考网关实现，**本仓库并未用国际版凭据确认过**——万一它不对，探测会落到 `/console`，再不行就是静态表，代价仅是一行警告。
+
+| 环境变量 | 作用 |
+|---|---|
+| `WORKBUDDY_DISABLE_MODEL_DISCOVERY=1` | 完全不调用接口，只用静态表。 |
+| `WORKBUDDY_MODEL_CACHE_SECONDS=<n>` | 修改刷新间隔（默认 3600）。 |
+| `WORKBUDDY_MODEL_DISK_CACHE=<path>` | 迁移缓存位置。**请以 `/` 结尾（或指向一个已存在的目录）**，这样每个区域各写自己的文件——两个接入点同时加载时，若给的是一个裸文件路径，该文件会被共用，最后写入的那个区域会把自己的模型表喂给另一个。 |
+| `WORKBUDDY_MODEL_FIXTURE=<path>` | 用一份留存的响应替换网络。用于调试与测试；作用于当前刷新的区域。 |
+
+想知道某区域最终用了哪个来源，去 opencode 日志里 grep `catalogue[<区域>]: N models …`——它会写明来源（`live`、`cache`、`fixture` 或 `static`）。
 
 ## 用法
 
@@ -150,16 +204,37 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 | `providerID` | 以其他 id 注册（默认 `workbuddy`） |
 | `providerName` | `/connect` 与选择器里的显示名（默认 `WorkBuddy AI`） |
 | `storeName` | 该接入点读写哪个自身存储文件 |
-| `setDefault: true` | 在未显式设置 `model` 时把 `workbuddy/hy3` 设为默认模型 |
-| （agent 预置） | 若你未配置，`plan` / `general` / `explore` / `title` / `compaction` 子代理会被钉到 `workbuddy/hy3` |
+| `setDefault: true` | 在未显式设置 `model` 时把 `<provider>/hy3` 设为默认模型 |
+| （agent 预置） | 若你未配置，`plan` / `general` / `explore` / `title` / `compaction` 子代理会被钉到 `<provider>/hy3` |
 
 `definePlugin("intl" | "cn")` 会预填 `providerID`、`providerName`、`storeName`，以及（CN 的）`baseUrl`；条目上显式传入的值优先于这些默认。
 
 所有模型的计费都注册为 `0` —— 桌面端凭据的额度由 WorkBuddy 侧结算，与 opencode 无关。
 
-### 查看认证状态
+### 账号工具
 
-插件自带账号工具——国际版接入点是 `workbuddy_account`，国内版是 `workbuddy_cn_account`（两者 agent 均可见），报告当前 provider、解析出的 uid、过期时间、基址与凭据来源——绝不输出 token 本身。直接问 agent：*"现在用的是哪个 WorkBuddy 账号？"*
+每个接入点自带三个 agent 可见的工具，按 provider 命名（国际版 `workbuddy_*`，国内版 `workbuddy_cn_*`）：
+
+| 工具 | 作用 |
+|---|---|
+| `_account` | 当前 provider、解析出的 uid、过期时间、基址与凭据来源——绝不输出 token 本身。*"现在用的是哪个 WorkBuddy 账号？"* |
+| `_quota` | 所有生效发放的剩余积分：每个包的剩余/总量、到期时间，以及最快到期的那笔。*"我还有多少额度？"* |
+| `_checkin` | 领取每日签到积分。幂等：同一天第二次调用返回 `already`。 |
+
+余额接口比 chat 多包一层（`data.Response.Data.Accounts`），且每一行是一个**发放实例**而不是一个包：重复充值与每日签到都会各自生成一行、各自带到期时间——这也是为什么"快要到期的那笔"值得和总额分开显示。
+
+直接问 agent：*"查一下 WorkBuddy 余额"*、*"签到"*——它会按你所处接入点选用对应工具。
+
+**`_checkin` 会写你的账号。** 它只会因为一次显式的工具调用而触发——绝不在启动时、绝不在请求路径上，也从不重试。活动结束、接口改形、接口消失，都不会弄坏任何东西：每种失败都作为一条 agent 可读的消息返回，凭据分毫不动。两个开关无需更新插件即可关闭它：
+
+| 环境变量 | 作用 |
+|---|---|
+| `WORKBUDDY_DISABLE_CHECKIN=1` | `_checkin` 在解析凭据**之前**就短路，零网络调用；`_quota` 照常可用。 |
+| `WORKBUDDY_DISABLE_BILLING=1` | 总开关：`_quota` 与 `_checkin` 一起停用。 |
+
+这种隔离不只是嘴上说说，而是有测试兜底的：`test/quota.mjs` 注入传输失败、HTTP 500、以 `200` 返回的 HTML 登录页、被清空的响应体、活动下线（`404`）以及无凭据环境，逐一断言 billing 函数是 **返回** 失败而不是抛出异常、凭据文件逐字节未被改动、以及在每个 billing 请求都抛错的情况下插件仍然正常注册工具、非-billing 调用照常响应。
+
+唯一值得留意的一点：一个**不带网关业务码**的 `200` 会被判为失败而非成功。否则一张 HTML 页面或代理拦截页就会被读成"签到成功"，让你以为拿到了从未真正到账的积分。
 
 ## 排障
 
@@ -169,7 +244,9 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 - **想看完整追踪** — 设 `WORKBUDDY_DEBUG=1`，把每个级别（debug/info/warn/error）都镜像到 stderr，便于命令行调试。
 - **调整写进日志文件的内容** — `WORKBUDDY_LOG=debug|info|warn|error` 移动下限（默认 `info`）；`debug` 会额外记录每次请求的细节（成功恢复的 token 刷新、handler 命中、被丢弃的 SSE 行）。`WORKBUDDY_LOG=off` 把插件彻底静音，终端和文件都不写。
 
-日志文件在 `~/.local/share/opencode/log/`，可用 `registered 11 models` 或 `setup[v2]` 去 grep。
+日志文件在 `~/.local/share/opencode/log/`，可用 `catalogue[`（每个区域最终用了哪个模型来源）、`registered`（最终模型数量）或 `setup[v2]` 去 grep。
+
+- **你以为会在的模型不见了** — 模型 id 以实时目录为准，所以接口没给某个账号列出的模型，插件就不再提供。查日志里的 `catalogue[<区域>]: N models <来源>`：来源是 `live|cache` 就是网关在决定；设 `WORKBUDDY_DISABLE_MODEL_DISCOVERY=1` 回到内置表，确认该模型是否重新出现。
 
 - **刷新之后仍然 `401`/`403`** — 桌面端会话过期：重新登录 WorkBuddy 桌面端，或用 `opencode auth login`。
 - **Browser Login 一直等不到结果** — 账号属于另一个站点。改选匹配的接入点（`WorkBuddy AI` 或 `WorkBuddy AI (CN)`）即可；每个接入点打开的是自己的登录页，不再需要折腾 `WORKBUDDY_BASE_URL`。
@@ -180,22 +257,30 @@ opencode run -m workbuddy/deepseek-v4-flash "hello"
 
 ## 测试
 
-冒烟测试：
-
 ```bash
-node test/plugin.mjs        # 注册契约，覆盖两个接入点（无网络）
-node test/stream.mjs        # SSE 分块回归测试（无网络）
-node test/log.mjs           # 日志策略：终端干净、追踪进日志文件（无网络）
-node test/live.mjs hy3      # 流式 + usage 走真实模型
-node test/tools.mjs         # 两轮工具往返
+npm test          # 构建 + tsc + biome + 离线套件
+npm run test:live # 需要已登录凭据
 ```
 
-`live.mjs` / `tools.mjs` 需要已登录凭据并走真实网络；`plugin.mjs`、`stream.mjs` 与 `log.mjs` 完全离线。
+离线套件不需要凭据、不碰网络，且跑在被沙箱化的 cache/config 根目录上：
+
+| 文件 | 覆盖内容 |
+|---|---|
+| `test/plugin.mjs` | 两个接入点的注册契约、区域专属模型表 |
+| `test/catalogue.mjs` | 响应解析、credits 归一、合并规则、区域隔离、缓存回退阶梯、缓存路径覆盖 |
+| `test/quota.mjs` | billing 隔离性：传输失败、HTTP 500、以 `200` 返回的 HTML 登录页、被清空的响应体、活动下线、无凭据、两个开关、到期时间解析——以及这些情况都不能抛异常、不能改动凭据、不能弄丢已注册的工具 |
+| `test/stream.mjs` | SSE 分块（一段连续回答必须只有一对 `text-start`/`text-end`） |
+| `test/log.mjs` | 日志策略：终端干净、完整追踪进日志文件 |
+
+`test/live.mjs [model] [intl|cn]` 与 `test/tools.mjs [model] [intl|cn]` 打真实网关，需要目标接入点已登录（`hy3` 在两个站点都免费，是最省额度的默认选择）。两者也都读 `$WORKBUDDY_REGION`。
 
 ## 开发
 
 ```bash
-npm run build   # tsc -> dist/
+npm run build     # tsc -> dist/
+npm run check     # tsc --noEmit
+npm run lint      # biome check .
+npm run lint:fix  # biome check --write .
 ```
 
-ESM、TypeScript strict、`@ai-sdk/provider` 的 `LanguageModelV3`。`src/index.ts` 同时接好旧版 `config` hook 注册与 v2 `setup`/catalog/`aisdk.language` 路径；线上格式由 `src/language-model.ts` 负责。
+ESM、TypeScript strict、`@ai-sdk/provider` 的 `LanguageModelV3`，lint 与格式化统一用 Biome。`src/index.ts` 同时接好旧版 `config` hook 注册与 v2 `setup`/catalog/`aisdk.language` 路径；`src/models.ts` 负责区域专属表与目录合并规则；`src/catalogue.ts` 负责模型发现与缓存；线上格式由 `src/language-model.ts` 负责。

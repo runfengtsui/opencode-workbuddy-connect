@@ -8,10 +8,12 @@ Zero-credential setup if you use the WorkBuddy / CodeBuddy desktop app: the plug
 
 ## Features
 
-- **Real 1M context** — `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash`, `glm-5.2`, `kimi-k3-1` and `hy4-preview-f` are registered with `limit.context = limit.input = 1_000_000`, so opencode compacts at ~1M instead of the 200k default. The 1M window is native to these models; no wire parameter is needed.
+- **Real 1M context** — every 1M-tier model is registered with `limit.context = limit.input = 1_000_000`, so opencode compacts at ~1M instead of the 200k default. The 1M window is native to these models; no wire parameter is needed. Six on the international endpoint (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash`, `glm-5.2`, `kimi-k3-1`, `hy4-preview-f`) and ten on CN (`hy4-preview`, `hy4-preview-x`, `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `kimi-k3-1`, `kimi-k2.8-preview`, `deepseek-v4-flash`, `deepseek-v4.1-flash`, `deepseek-v4-pro`).
+- **Live model discovery** — the plugin asks the gateway which models *your* account can actually buy, at its real token budgets, and merges that over a bundled per-region table. Renames, new releases and context-window changes land without a plugin update, and no discovery failure can affect auth.
 - **Pure OpenAI-compatible SSE** against `https://www.workbuddy.{ai|cn}/v2/chat/completions`, with `reasoning_content` streamed as native thinking.
 - **Full agentic tool use** — parallel tool calls, streaming tool-argument deltas, and `tool`-role result replay verified against the live gateway.
 - **Credential discovery chain** — plugin options → environment → own store → desktop app auth file. Works out of the box next to a logged-in WorkBuddy desktop.
+- **Account tools** — read your remaining credits per grant (`_quota`), claim the daily check-in (`_checkin`) and inspect which credential is live (`_account`). Strictly off the request path: every failure is returned as a message rather than thrown, and both billing tools can be switched off by environment variable without a plugin update.
 - **Self-healing auth** — a 401/403 triggers one token refresh (via the desktop refresh endpoint) and one automatic replay of the request.
 - **Browser login in `opencode auth login`** — OAuth-style login with polling, stored to `~/.config/opencode/workbuddy-auth.json`.
 - **Reasoning-effort variants** (`low` / `medium` / `high` / `xhigh` / `max`) exposed as opencode model variants.
@@ -90,7 +92,7 @@ a custom `baseUrl` / `storeName` per integration point.
 The first successful source wins, in this order:
 
 1. **Plugin options** — `"options": { "apiKey": "<token>", "userID": "<uid>", "baseUrl": "https://www.workbuddy.cn" }` on the provider (or on the plugin entry in `opencode.json`).
-2. **Environment** — `WORKBUDDY_TOKEN` + `WORKBUDDY_UID`; optionally `WORKBUDDY_BASE_URL` and `WORKBUDDY_AUTH_FILE`.
+2. **Environment** — `WORKBUDDY_TOKEN` + `WORKBUDDY_UID` for the international point, `WORKBUDDY_CN_TOKEN` + `WORKBUDDY_CN_UID` for the CN one. The split is deliberate: a single token variable would let a CN credential sign international requests (and light up a provider you never logged into). Optionally `WORKBUDDY_BASE_URL` and `WORKBUDDY_AUTH_FILE`.
 3. **Own store** — the per-integration-point file from the table above (written by Browser Login below, and by every successful token refresh).
 4. **Desktop auth file** — automatically located in
    `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`
@@ -111,23 +113,75 @@ Two methods are offered per integration point:
 
 ## Models
 
-All models accept image input and stream reasoning. IDs are used as `workbuddy/<id>`:
+Each integration point has its **own** model table, because the two sites sell different catalogues under the same names.
+
+**`workbuddy` (international)** — 11 models, default `hy3`. All 11 stream reasoning and accept image input:
 
 | Model | Context | Max output | Effort variants | Notes |
 |---|---|---|---|---|
-| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max | output capped to 16,384 (loop guard) |
+| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max | |
 | `deepseek-v4-pro` | **1,000,000** | 50,000 | low…max | |
-| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low…max | output capped to 16,384 (loop guard) |
+| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low…max | free; output capped to 16,384 (loop guard) |
 | `glm-5.2` | **1,000,000** | 48,000 | low…max | |
 | `kimi-k3-1` | **1,000,000** | 32,000 | low…max | |
-| `hy4-preview-f` | **1,000,000** | 64,000 | high | |
+| `hy4-preview-f` | **1,000,000** | 64,000 | high | free; international only |
 | `minimax-m3` | 512,000 | 128,000 | low…max | |
 | `kimi-k2.7` | 256,000 | 32,000 | low…max | |
 | `kimi-k2.5` | 256,000 | 32,000 | low…max | |
 | `glm-5.1` | 200,000 | 48,000 | low…max | |
-| `hy3` | 192,000 | 64,000 | low, high | |
+| `hy3` | 192,000 | 64,000 | low, high | free |
 
-The plugin also reads `~/.workbuddy-ai/cache/acc-product-config-v3.json` (the desktop app's account model catalog) when present and layers it over the table above, so newly released models can appear without a plugin update.
+**`workbuddy-cn` (CN)** — 29 models, default `hy3`. The CN catalogue is mixed: some entries neither stream reasoning nor take images, so capability varies per model rather than being uniform. Notable entries (full list is published at startup):
+
+| Model | Context | Max output | Effort variants |
+|---|---|---|---|
+| `auto` | 168,000 | 32,000 | low…max |
+| `hy3` | 192,000 | 64,000 | low, high |
+| `hy3-x` | 192,000 | 64,000 | low, high |
+| `hy4-preview` | **1,000,000** | 64,000 | high |
+| `hy4-preview-x` | **1,000,000** | 64,000 | high |
+| `glm-5.3` | **1,000,000** | 64,000 | low, high, max |
+| `glm-5.3-flash` | **1,000,000** | 32,000 | low, high, max |
+| `glm-5.2` | **1,000,000** | 64,000 | low…max |
+| `kimi-k3-1` | **1,000,000** | 32,000 | low…max |
+| `kimi-k2.8-preview` | **1,000,000** | 64,000 | low, high, max |
+| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max |
+| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low, high, max |
+| `deepseek-v4-pro` | **1,000,000** | 128,000 | low…max |
+| `minimax-m3` | 512,000 | 64,000 | low…max |
+| `kimi-k2.7` | 256,000 | 32,000 | low…max |
+| `kimi-k2.5` | 164,000 | 32,000 | low…max |
+| … | 13 more | | |
+
+These are the *statically bundled* tables. The plugin also queries the live catalogue endpoint at startup and replaces them with whatever your account can actually buy (see [Model discovery](#model-discovery) below).
+
+## Model discovery
+
+The gateway exposes the same endpoint the WorkBuddy CLI uses:
+
+```
+CN:    GET {baseUrl}/console/enterprises/personal/models
+Intl:  GET {baseUrl}/v2/enterprises/personal/models   (falls back to /console)
+```
+
+The two integration points do not share a prefix: the international gateway answers `500` on `/console/...` and `200` on `/v2/...`, so the paths are probed in order and the first that answers wins. A dead prefix therefore cannot disable discovery for a region.
+
+It returns the models *your* credential is allowed to use, at the gateway's true token budgets — the only way the table stays accurate after WorkBuddy renames a model or moves its context window. On startup (and at most once per hour) the plugin fetches it, writes a per-region disk cache under `~/.cache/opencode/`, and applies the result:
+
+- **ids** are authoritative: a model the endpoint omits stops being offered, a new one starts.
+- **numbers** (`contextWindow`, `maxOutputTokens`, `credits`) come from the gateway. The endpoint is the only place the plugin learns that e.g. `kimi-k2.5` is 164k, not 256k.
+- **effort ladders** fall back to the static table where the endpoint is silent. The endpoint only lists `supportedEfforts` for some models; inventing the full `low…max` ladder for a model like `hy3` (which really only accepts `low`/`high`) would produce `400 invalid effort` responses, so "absent" is treated as *unknown*, not as "all five".
+
+Nothing about discovery can break auth. A 500, a timeout, an empty response, or a response so small it looks truncated is logged and ignored, and the last good table is served — worst case the static table. Failures back off for 60 s so a broken endpoint isn't hammered on every startup. The CN endpoint is confirmed answering live; the international `/v2` path is taken from the reference gateway implementations and is *not* confirmed against an international credential here — if it is ever wrong, the probe falls through to `/console` and then to the static table, which costs a warning line and nothing else.
+
+| Variable | Effect |
+|---|---|
+| `WORKBUDDY_DISABLE_MODEL_DISCOVERY=1` | Never call the endpoint; use only the static tables. |
+| `WORKBUDDY_MODEL_CACHE_SECONDS=<n>` | Change the refresh interval (default 3600). |
+| `WORKBUDDY_MODEL_DISK_CACHE=<path>` | Relocate the cache. **End it with `/` (or point it at an existing directory)** so each region writes its own file — with both integration points loaded, a bare file path would be shared and the last region to write would serve its catalogue to the other. |
+| `WORKBUDDY_MODEL_FIXTURE=<path>` | Replace the network with a saved response. For debugging and tests; applies to whichever region is refreshed. |
+
+To see what a region resolved to, check opencode's log for `catalogue[<region>]: N models …` — it names the source (`live`, `cache`, `fixture` or `static`).
 
 ## Usage
 
@@ -157,16 +211,37 @@ or set it as the default:
 | `providerID` | register under a different id (default `workbuddy`) |
 | `providerName` | display name in `/connect` and the picker (default `WorkBuddy AI`) |
 | `storeName` | which own-store file this integration point reads/writes |
-| `setDefault: true` | make `workbuddy/hy3` the default model unless `model` is already set |
-| (agent pins) | `plan` / `general` / `explore` / `title` / `compaction` subagents are pinned to `workbuddy/hy3` if you haven't configured them |
+| `setDefault: true` | make `<provider>/hy3` the default model unless `model` is already set |
+| (agent pins) | `plan` / `general` / `explore` / `title` / `compaction` subagents are pinned to `<provider>/hy3` if you haven't configured them |
 
 `definePlugin("intl" | "cn")` pre-fills `providerID`, `providerName`, `storeName` and (for CN) `baseUrl`; anything you pass on the entry overrides them.
 
 All models are registered with cost `0` — the desktop credential's quota is billed by WorkBuddy, not by opencode.
 
-### Inspecting auth
+### Account tools
 
-The plugin ships an account tool — `workbuddy_account` for the international integration point, `workbuddy_cn_account` for the CN one (both visible to the agent). It reports the resolved provider, uid, expiry, base URL and credential source — never the token value. Ask the agent: *"which WorkBuddy account is active?"*
+Each integration point ships three agent-visible tools, named after the provider (`workbuddy_*` international, `workbuddy_cn_*` CN):
+
+| Tool | What it does |
+|---|---|
+| `_account` | Resolved provider, uid, expiry, base URL and credential source — never the token value. *"which WorkBuddy account is active?"* |
+| `_quota` | Remaining credits across every active grant: per-package remain/total, expiry, and which one expires first. *"how much quota do I have left?"* |
+| `_checkin` | Claims the daily check-in grant. Idempotent: a second call the same day reports `already`. |
+
+The balance endpoint wraps one level deeper than chat (`data.Response.Data.Accounts`) and each row is a **grant instance**, not a package — repeated top-ups and daily check-ins each mint their own row with its own expiry, which is why an expiring-soon row is worth showing separately from your total.
+
+Ask the agent: *"check my WorkBuddy balance"*, *"签到"* — it picks the tool for the integration point you're on.
+
+**`_checkin` writes to your account.** It is only ever fired from an explicit tool call — never on startup, never on a request path, and it is never retried. If the campaign ends, changes shape, or the endpoint goes away, nothing breaks: every failure is returned as a message the agent can read, and the credential is untouched. Two switches turn it off without a plugin update:
+
+| Variable | Effect |
+|---|---|
+| `WORKBUDDY_DISABLE_CHECKIN=1` | `_checkin` short-circuits before even resolving credentials; zero network calls. `_quota` still works. |
+| `WORKBUDDY_DISABLE_BILLING=1` | Umbrella: disables `_quota` and `_checkin` together. |
+
+This isolation is not just claimed, it is tested: `test/quota.mjs` injects a transport failure, an HTTP 500, an HTML login wall served at `200`, an emptied payload, a vanished campaign (`404`) and a credential-less environment, and asserts on each one that the billing functions *return* a failure instead of throwing, that the credential file is byte-for-byte unchanged, and that with every billing request throwing the plugin still registers its tools and answers non-billing calls normally.
+
+The one case worth knowing about: a `200` response that carries **no gateway business code** is treated as a failure, not a success. An HTML page or a proxy interstitial would otherwise read as "check-in claimed" and silently report credits you never got.
 
 ## Troubleshooting
 
@@ -186,7 +261,10 @@ are the ones that need you.
   mutes the plugin entirely, terminal and file both.
 
 Find the file under `~/.local/share/opencode/log/` and grep it for
-`registered 11 models` or `setup[v2]`.
+`catalogue[` (which model source won for each region), `registered` (final model
+counts) or `setup[v2]`.
+
+- **A model you expected is missing** — the live catalogue is authoritative for ids, so if the endpoint doesn't list a model for your account, the plugin won't offer it. Check the log line `catalogue[<region>]: N models <source>`: with `source=live|cache` the gateway is deciding; set `WORKBUDDY_DISABLE_MODEL_DISCOVERY=1` to go back to the bundled table and confirm the model reappears.
 
 - **`401`/`403` even after refresh** — the desktop session expired: sign in to the WorkBuddy desktop app again, or use `opencode auth login`.
 - **Browser Login never completes** — the account belongs to the *other* endpoint. Pick the matching integration point (`WorkBuddy AI` vs `WorkBuddy AI (CN)`); each one opens its own login page, so no `WORKBUDDY_BASE_URL` juggling is needed.
@@ -197,22 +275,30 @@ Find the file under `~/.local/share/opencode/log/` and grep it for
 
 ## Tests
 
-Smoke tests, split into an offline contract group and a live group:
-
 ```bash
-node test/plugin.mjs        # registration contract, both integration points (no network)
-node test/stream.mjs        # SSE framing regression (no network)
-node test/log.mjs           # logging policy: clean terminal, trace to the log file (no network)
-node test/live.mjs hy3      # stream + usage through the real model
-node test/tools.mjs         # two-turn tool round-trip
+npm test          # build + tsc + biome + the offline suite
+npm run test:live # needs a signed-in credential
 ```
 
-`live.mjs` / `tools.mjs` need a signed-in credential; `plugin.mjs`, `stream.mjs` and `log.mjs` are offline.
+The offline suite runs with no credentials and no network, against a sandboxed cache/config root:
+
+| File | Covers |
+|---|---|
+| `test/plugin.mjs` | registration contract for both integration points, per-region tables |
+| `test/catalogue.mjs` | payload parsing, credits normalisation, merge rules, region isolation, the cache fallback ladder, cache-path overrides |
+| `test/quota.mjs` | billing isolation: transport failure, HTTP 500, an HTML wall served at `200`, an emptied payload, a vanished campaign, missing credentials, both kill-switches, expiry parsing — and that none of it can throw, mutate a credential, or unregister a tool |
+| `test/stream.mjs` | SSE framing (one answer must be one `text-start`/`text-end` pair) |
+| `test/log.mjs` | logging policy: clean terminal, full trace to the log file |
+
+`test/live.mjs [model] [intl|cn]` and `test/tools.mjs [model] [intl|cn]` hit the real gateway and need a login for the access point they target (`hy3` is free on both, so it is the cheapest default). Both also read `$WORKBUDDY_REGION`.
 
 ## Development
 
 ```bash
-npm run build   # tsc -> dist/
+npm run build     # tsc -> dist/
+npm run check     # tsc --noEmit
+npm run lint      # biome check .
+npm run lint:fix  # biome check --write .
 ```
 
-ESM, TypeScript strict, `@ai-sdk/provider` `LanguageModelV3`. `src/index.ts` wires both the legacy `config`-hook registration and the v2 `setup`/catalog/`aisdk.language` path; `src/language-model.ts` owns the wire format.
+ESM, TypeScript strict, `@ai-sdk/provider` `LanguageModelV3`, Biome for lint + format. `src/index.ts` wires both the legacy `config`-hook registration and the v2 `setup`/catalog/`aisdk.language` path; `src/models.ts` owns the per-region tables and the catalogue merge rules; `src/catalogue.ts` owns discovery and caching; `src/language-model.ts` owns the wire format.
