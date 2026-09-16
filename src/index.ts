@@ -32,6 +32,7 @@ import {
   logPlugin,
 } from "./log.js";
 import { defaultModelID, displayName, type WorkBuddyModelDefinition } from "./models.js";
+import { dailyCheckin, fetchQuota, formatQuota } from "./quota.js";
 
 export { createWorkBuddy, WorkBuddyLanguageModel };
 
@@ -385,6 +386,16 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
   const name = providerName(options);
   const store = optionString(options, "storeName");
   const accountTool = `${id.replace(/-/g, "_")}_account`;
+  const quotaTool = `${id.replace(/-/g, "_")}_quota`;
+  const checkinTool = `${id.replace(/-/g, "_")}_checkin`;
+  const region = regionOf(options);
+  const billingOpts = (): WorkBuddyProviderOptions => ({
+    apiKey: optionString(options, "apiKey"),
+    userID: optionString(options, "userID"),
+    baseUrl: optionString(options, "baseUrl"),
+    storeName: store,
+    providerID: id,
+  });
   return {
     config: async (cfg) => applyLegacyConfig(cfg as unknown as LegacyConfig, options),
     auth: {
@@ -483,6 +494,91 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
             return {
               output: `Not authenticated: ${error instanceof Error ? error.message : String(error)}`,
               data: { ok: false },
+            };
+          }
+        },
+      }),
+      [quotaTool]: tool({
+        description:
+          `Read the ${name} account's remaining credits across every active ` +
+          "package: per-instance grant, remaining/total, expiry, and the " +
+          "earliest expiring. Never reports the token. Use when the user asks " +
+          "about balance, quota, 额度 / 配额 / 余额 / credits, or whether they " +
+          "can afford a paid model.",
+        args: {},
+        execute: async () => {
+          // Last-line defence. fetchQuota/dailyCheckin already swallow every
+          // network fault, so nothing here should throw -- but this is an
+          // account-information tool bolted onto a chat plugin, and a future
+          // refactor must never be able to surface an exception into the tool
+          // dispatcher and disturb the session.
+          try {
+            const report = await fetchQuota(region, billingOpts());
+            const packages = report.packages.map((p) => ({
+              code: p.code,
+              name: p.name,
+              unit: p.unit,
+              remain: p.remain,
+              total: p.total,
+              used: p.used,
+              status: p.status,
+              expiresAtMs: p.expiresAtMs,
+            }));
+            return {
+              output: formatQuota(report),
+              data: {
+                ok: report.ok,
+                region,
+                disabled: report.disabled ?? false,
+                totalRemain: report.totalRemain,
+                totalCapacity: report.totalCapacity,
+                soonestExpiryMs: report.soonestExpiryMs,
+                packages,
+                ...(report.error ? { error: report.error } : {}),
+              },
+            };
+          } catch (error) {
+            return {
+              output: `Balance unavailable: ${error instanceof Error ? error.message : String(error)}`,
+              data: { ok: false, region, packages: [] },
+            };
+          }
+        },
+      }),
+      [checkinTool]: tool({
+        description:
+          `Claim today's daily check-in credits on the ${name} account. This is ` +
+          "a MUTATION (minted as a fresh 100-credit instance per gateway " +
+          "policy) but is idempotent: a second call today reports status " +
+          "`already` with no side effect. Use only when the user explicitly " +
+          "asks to check in / 签到 / 领积分.",
+        args: {},
+        execute: async () => {
+          try {
+            const result = await dailyCheckin(region, billingOpts());
+            const lines = [`checkin[${region}]: ${result.status} -- ${result.message}`];
+            let balance: number | undefined;
+            if (result.status === "claimed") {
+              // Only worth a second request if this call actually minted credits.
+              const follow = await fetchQuota(region, billingOpts());
+              balance = follow.totalRemain;
+              if (follow.ok) {
+                lines.push(
+                  `balance now: ${follow.totalRemain}/${follow.totalCapacity} credits across ${follow.packages.length} packages`,
+                );
+              }
+            }
+            return {
+              output: lines.join("\n"),
+              data: { status: result.status, region, message: result.message, balance },
+            };
+          } catch (error) {
+            // Same contract as the balance tool: a check-in that cannot run is
+            // reported, never thrown. The campaign may vanish entirely and the
+            // plugin must keep working.
+            return {
+              output: `checkin[${region}]: failed (${error instanceof Error ? error.message : String(error)})`,
+              data: { status: "failed", region },
             };
           }
         },

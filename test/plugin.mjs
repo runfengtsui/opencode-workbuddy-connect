@@ -15,7 +15,7 @@ const EXPECT = {
     providerID: "workbuddy",
     name: "WorkBuddy AI",
     store: "workbuddy-auth.json",
-    tool: "workbuddy_account",
+    tool: ["workbuddy_account", "workbuddy_quota", "workbuddy_checkin"],
     // International is not pinned: WORKBUDDY_BASE_URL must still win.
     baseUrl: undefined,
     baseURL: "https://www.workbuddy.ai",
@@ -26,7 +26,7 @@ const EXPECT = {
     providerID: "workbuddy-cn",
     name: "WorkBuddy AI (CN)",
     store: "workbuddy-cn-auth.json",
-    tool: "workbuddy_cn_account",
+    tool: ["workbuddy_cn_account", "workbuddy_cn_quota", "workbuddy_cn_checkin"],
     baseUrl: "https://www.workbuddy.cn",
     baseURL: "https://www.workbuddy.cn",
   },
@@ -130,8 +130,8 @@ for (const [region, want] of Object.entries(EXPECT)) {
   console.log(`auth: ${methods.join(",")} / ${oauth.label}`);
 
   const tools = Object.keys(hooks.tool);
-  check(tools.join() === want.tool, `tool ${tools} != ${want.tool}`);
-  console.log(`account tool: ${tools.join(",")}`);
+  check(tools.join() === want.tool.join(), `tools ${tools} != ${want.tool.join()}`);
+  console.log(`tools: ${tools.join(",")}`);
 
   // Options from a tuple entry still override the region defaults.
   const overridden = await definePlugin(region).server(

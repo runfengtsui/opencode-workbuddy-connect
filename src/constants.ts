@@ -66,6 +66,37 @@ export function modelCataloguePaths(region: WBRegion): readonly string[] {
     : [MODEL_CATALOGUE_PATH];
 }
 
+// --- billing (quota + daily check-in) ---------------------------------------
+
+/**
+ * Credit balance endpoint. Same-origin with the credential, unlike chat it
+ * answers with a double-wrapped envelope (`data.Response.Data.Accounts`).
+ * Each row is one GRANT INSTANCE, not one package: the same `PackageCode`
+ * appears repeatedly (daily check-ins each grant a fresh instance) with its
+ * own expiry, which is why "soonest expiring" is worth surfacing.
+ */
+export const BILLING_RESOURCE_PATH = "/v2/billing/meter/get-user-resource";
+
+/**
+ * Claims today's check-in credit grant. It is a MUTATION, so the plugin only
+ * fires it from an explicit tool call, never on startup.
+ */
+export const BILLING_CHECKIN_PATH = "/v2/billing/meter/daily-checkin";
+
+/**
+ * Campaign kill-switch. The daily check-in is a MUTATION against an endpoint
+ * that may disappear (campaign ends), change shape, or start rate-limiting.
+ * When set, the check-in tool short-circuits BEFORE resolving credentials
+ * (resolving can refresh + persist a token), so a disabled check-in makes zero
+ * network calls and cannot disturb the chat path.
+ */
+export const CHECKIN_DISABLE_ENV = "WORKBUDDY_DISABLE_CHECKIN";
+
+/** Umbrella switch: disables balance *and* check-in together. */
+export const BILLING_DISABLE_ENV = "WORKBUDDY_DISABLE_BILLING";
+
+/** Business code meaning "already checked in today" -- success-shaped, not a fault. */
+export const CHECKIN_ALREADY_CODE = 10001;
 /** Mirror of the reference client's hour-long catalogue TTL. */
 export const MODEL_CATALOGUE_TTL_MS = 60 * 60 * 1000;
 /** Failures retry sooner -- a transient 500 must not cost an hour. */

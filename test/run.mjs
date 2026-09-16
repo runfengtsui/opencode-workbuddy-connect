@@ -7,7 +7,7 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
-const OFFLINE = ["catalogue.mjs", "plugin.mjs", "log.mjs", "stream.mjs"];
+const OFFLINE = ["catalogue.mjs", "quota.mjs", "plugin.mjs", "log.mjs", "stream.mjs"];
 
 function run(file) {
   return new Promise((resolve) => {
