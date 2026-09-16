@@ -8,6 +8,9 @@
 // Run: node test/log.mjs
 import { installLogSink, logError, logInfo, logPlugin, logWarn } from "../dist/log.js";
 
+// This file is about the log sink; the model catalogue must stay offline.
+process.env.WORKBUDDY_DISABLE_MODEL_DISCOVERY = "1";
+
 let fail = 0;
 const check = (cond, msg) => {
   if (!cond) {
@@ -54,7 +57,8 @@ function emitAll() {
 
 const stderrOf = (env) => {
   Object.assign(process.env, env);
-  for (const key of ["WORKBUDDY_DEBUG", "WORKBUDDY_LOG"]) if (!(key in env)) delete process.env[key];
+  for (const key of ["WORKBUDDY_DEBUG", "WORKBUDDY_LOG"])
+    if (!(key in env)) delete process.env[key];
   armedSink();
   const out = captureStderr(emitAll);
   return {
@@ -76,15 +80,24 @@ const stderrOf = (env) => {
   check(!r.terminal.debug && !r.terminal.info, "debug/info must not reach the terminal by default");
   check(r.terminal.warn && r.terminal.error, "warn/error must always reach the terminal");
   check(r.out.includes("[workbuddy] warn:"), "warn line should carry its level");
-  check(r.sink.join() === "info:msg-info,warn:msg-warn,error:msg-error", `default sink floor is info, got ${r.sink}`);
-  check(sinkHits.every((h) => h.service === "workbuddy"), "sink entries must be tagged service=workbuddy");
+  check(
+    r.sink.join() === "info:msg-info,warn:msg-warn,error:msg-error",
+    `default sink floor is info, got ${r.sink}`,
+  );
+  check(
+    sinkHits.every((h) => h.service === "workbuddy"),
+    "sink entries must be tagged service=workbuddy",
+  );
 }
 
 // 2. WORKBUDDY_DEBUG=1 restores the full stderr trace for CLI debugging.
 {
   const r = stderrOf({ WORKBUDDY_DEBUG: "1" });
   console.log(`debug terminal=${JSON.stringify(r.terminal)} sink=${r.sink.length}`);
-  check(Object.values(r.terminal).every(Boolean), "WORKBUDDY_DEBUG=1 must mirror every level to stderr");
+  check(
+    Object.values(r.terminal).every(Boolean),
+    "WORKBUDDY_DEBUG=1 must mirror every level to stderr",
+  );
   check(r.sink.length === 4, "WORKBUDDY_DEBUG=1 must also lower the file floor to debug");
 }
 
@@ -130,15 +143,24 @@ const stderrOf = (env) => {
 // 5. The v1 server hook installs the real sink before anything logs.
 {
   const { definePlugin } = await import("../dist/index.js");
-  let logged = [];
-  const client = { app: { log: (a) => (logged.push(a.body.message), Promise.resolve({ data: true })) } };
+  const logged = [];
+  const client = {
+    app: {
+      log: (a) => {
+        logged.push(a.body.message);
+        return Promise.resolve({ data: true });
+      },
+    },
+  };
   const hooks = await definePlugin("cn").server({ client }, {});
   const cfg = { provider: {} };
   await hooks.config(cfg);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  console.log(`via server(): ${logged.length} entr${logged.length === 1 ? "y" : "ies"} to the log file`);
+  console.log(
+    `via server(): ${logged.length} entr${logged.length === 1 ? "y" : "ies"} to the log file`,
+  );
   check(
-    logged.some((m) => m.includes("registered 11 models")),
+    logged.some((m) => /registered \d+ models for cn/.test(m)),
     "server() must install the sink so the legacy config hook logs to the file",
   );
   check(!!cfg.provider["workbuddy-cn"], "provider still registered while logging");

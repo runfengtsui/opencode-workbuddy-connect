@@ -1,21 +1,25 @@
 import crypto from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   AUTH_FILE_CANDIDATES,
+  CN_STORE_NAME,
   INTL_STORE_NAME,
   PROVIDER_ID,
   PROVIDER_ID_CN,
   REFRESH_SKEW_MS,
   USER_AGENT,
+  type WBRegion,
   WORKBUDDY_AUTH_FILE_ENV,
   WORKBUDDY_BASE_URL_ENV,
+  WORKBUDDY_CN_TOKEN_ENV,
+  WORKBUDDY_CN_UID_ENV,
   WORKBUDDY_INTL_BASE,
   WORKBUDDY_TOKEN_ENV,
   WORKBUDDY_UID_ENV,
 } from "./constants.js";
-import { readEnvSafe } from "./env-helpers.js";
+import { readEnvSafe, writeJsonAtomic } from "./env-helpers.js";
 import { errorMessage, logWarn } from "./log.js";
 
 export interface WorkBuddyCredentials {
@@ -91,7 +95,8 @@ export function parseWorkBuddyAuth(text: string): WorkBuddyCredentials | undefin
         : typeof auth.expiresIn === "number" && auth.expiresIn > 0
           ? Date.now() + auth.expiresIn * 1000
           : 0,
-    uid: optionalString(identity.uid) ?? optionalString(identity.uin) ?? uidFromJwt(accessToken) ?? "",
+    uid:
+      optionalString(identity.uid) ?? optionalString(identity.uin) ?? uidFromJwt(accessToken) ?? "",
     domain: optionalString(auth.domain) ?? "",
     nickname: optionalString(identity.nickname) ?? optionalString(identity.preferred_username),
     ...(enterpriseId ? { enterpriseId } : {}),
@@ -104,7 +109,10 @@ export function uidFromJwt(token: string): string | undefined {
   const part = token.split(".")[1];
   if (!part) return undefined;
   try {
-    const padded = part.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    const padded = part
+      .replaceAll("-", "+")
+      .replaceAll("_", "/")
+      .padEnd(Math.ceil(part.length / 4) * 4, "=");
     const payload = asRecord(JSON.parse(Buffer.from(padded, "base64").toString("utf8")));
     return optionalString(payload?.uid) ?? optionalString(payload?.sub);
   } catch {
@@ -114,7 +122,7 @@ export function uidFromJwt(token: string): string | undefined {
 
 function parseOwnStore(text: string): WorkBuddyCredentials | undefined {
   const document = asRecord(safeJson(text));
-  if (!document || document.version !== 1) return undefined;
+  if (document?.version !== 1) return undefined;
   const stored = asRecord(document.credential);
   if (!stored) return undefined;
   const accessToken = typeof stored.accessToken === "string" ? stored.accessToken : "";
@@ -147,20 +155,28 @@ function ownStorePath(storeName?: string): string {
 }
 
 function readOwnStore(storeName?: string): WorkBuddyCredentials | undefined {
+  const file = ownStorePath(storeName);
   try {
-    const file = ownStorePath(storeName);
     if (!existsSync(file)) return undefined;
-    return parseOwnStore(readFileSync(file, "utf8"));
-  } catch {
+    const text = readFileSync(file, "utf8");
+    const cred = parseOwnStore(text);
+    if (cred) return cred;
+    // Distinguish "no login yet" from "login file we could not read". The first
+    // is normal; the second used to look exactly like the first, which is how a
+    // half-written store presented itself as "auth keeps disappearing".
+    logWarn(
+      `auth: ${file} exists but is not a readable ${storeName || INTL_STORE_NAME} credential store`,
+    );
+    return undefined;
+  } catch (error) {
+    logWarn(`auth: could not read ${file} (${errorMessage(error)})`);
     return undefined;
   }
 }
 
 export function saveOwnStore(cred: WorkBuddyCredentials, storeName?: string): void {
   try {
-    const file = ownStorePath(storeName);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ version: 1, credential: cred }), { mode: 0o600 });
+    writeJsonAtomic(ownStorePath(storeName), { version: 1, credential: cred });
   } catch (error) {
     logWarn(`auth: could not persist credential (${errorMessage(error)})`);
   }
@@ -173,7 +189,8 @@ function desktopCandidates(): string[] {
   const rel = ["CodeBuddyExtension", "Data", "Public", "auth"] as const;
   const files: string[] = [];
   if (process.platform === "darwin") {
-    for (const name of AUTH_FILE_CANDIDATES) files.push(join(home, "Library", "Application Support", ...rel, name));
+    for (const name of AUTH_FILE_CANDIDATES)
+      files.push(join(home, "Library", "Application Support", ...rel, name));
   } else if (process.platform === "win32") {
     const local = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
     const roaming = process.env.APPDATA ?? join(home, "AppData", "Roaming");
@@ -193,7 +210,10 @@ function hostOf(url: string): string {
   try {
     return new URL(value.startsWith("http") ? value : `https://${value}`).hostname.toLowerCase();
   } catch {
-    return value.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase();
+    return value
+      .replace(/^https?:\/\//i, "")
+      .replace(/\/.*$/, "")
+      .toLowerCase();
   }
 }
 
@@ -220,9 +240,7 @@ function desktopMatchesRegion(cred: WorkBuddyCredentials, region: "cn" | "intl")
   return isCnHost(hostOf(cred.domain)) === (region === "cn");
 }
 
-function readDesktopCredential(
-  region: "cn" | "intl",
-): WorkBuddyCredentials | undefined {
+function readDesktopCredential(region: "cn" | "intl"): WorkBuddyCredentials | undefined {
   for (const path of desktopCandidates()) {
     try {
       if (!existsSync(path)) continue;
@@ -247,10 +265,22 @@ export function connectName(options: WorkBuddyProviderOptions): string {
   return regionOfBaseUrl(options.baseUrl) === "cn" ? PROVIDER_ID_CN : PROVIDER_ID;
 }
 
+/** Which integration point these options belong to. The store file name is the
+ * strongest signal (a region always carries its own); the provider id and base
+ * URL are fallbacks for hand-wired configurations. */
+export function regionOfOptions(options: WorkBuddyProviderOptions): WBRegion {
+  if (options.storeName === CN_STORE_NAME) return "cn";
+  if (options.storeName === INTL_STORE_NAME) return "intl";
+  return connectName(options) === PROVIDER_ID_CN ? "cn" : "intl";
+}
+
 /**
  * Credential resolution order (reference parity):
  *   1. provider options apiKey (+ userID)
- *   2. WORKBUDDY_TOKEN / WORKBUDDY_UID env
+ *   2. this region's token env -- WORKBUDDY_TOKEN for international,
+ *      WORKBUDDY_CN_TOKEN for CN. They are deliberately separate: one
+ *      variable read by both regions made a CN token light up the
+ *      international provider, which then answered 401.
  *   3. the browser-login store (written by /connect workbuddy)
  *   4. the WorkBuddy desktop app's auth file
  * The freshest of (3)/(4) wins when both exist: a login done inside opencode
@@ -259,10 +289,13 @@ export function connectName(options: WorkBuddyProviderOptions): string {
 export async function resolveWorkBuddyCredentials(
   options: WorkBuddyProviderOptions = {},
 ): Promise<WorkBuddyCredentials> {
-  const explicit = readEnvSafe(WORKBUDDY_TOKEN_ENV);
+  const region = regionOfOptions(options);
+  const envToken = region === "cn" ? WORKBUDDY_CN_TOKEN_ENV : WORKBUDDY_TOKEN_ENV;
+  const envUid = region === "cn" ? WORKBUDDY_CN_UID_ENV : WORKBUDDY_UID_ENV;
+  const explicit = readEnvSafe(envToken);
   const token = options.apiKey || explicit;
   if (token) {
-    const uid = options.userID || readEnvSafe(WORKBUDDY_UID_ENV) || uidFromJwt(token) || "";
+    const uid = options.userID || readEnvSafe(envUid) || uidFromJwt(token) || "";
     return {
       accessToken: token,
       refreshToken: "",
@@ -272,7 +305,6 @@ export async function resolveWorkBuddyCredentials(
     };
   }
 
-  const region = connectName(options) === PROVIDER_ID_CN ? "cn" : "intl";
   const own = readOwnStore(options.storeName);
   const desktop = readDesktopCredential(region);
   let cred: WorkBuddyCredentials | undefined;
@@ -281,7 +313,8 @@ export async function resolveWorkBuddyCredentials(
   if (!cred) {
     throw new Error(
       `WorkBuddy credentials not found. Run \`/connect ${connectName(options)}\` in opencode, ` +
-        "log in to the WorkBuddy desktop app, or set WORKBUDDY_TOKEN.",
+        `log in to the WorkBuddy ${region === "cn" ? "CN" : "international"} desktop app, ` +
+        `or set ${envToken} (this integration point reads ${envToken} only).`,
     );
   }
   if (isFresh(cred)) return cred;
@@ -303,7 +336,10 @@ export async function resolveWorkBuddyCredentials(
   );
 }
 
-export function baseUrlFor(cred: WorkBuddyCredentials, options: WorkBuddyProviderOptions = {}): string {
+export function baseUrlFor(
+  cred: WorkBuddyCredentials,
+  options: WorkBuddyProviderOptions = {},
+): string {
   const configured = options.baseUrl || readEnvSafe(WORKBUDDY_BASE_URL_ENV);
   if (configured) return configured.replace(/\/+$/, "");
   if (cred.domain) return `https://${cred.domain}`;
@@ -335,7 +371,9 @@ export function chatHeaders(
     "User-Agent": USER_AGENT,
     Authorization: `Bearer ${cred.accessToken}`,
     ...(cred.uid === "" ? { "X-No-User-Id": "1" } : { "X-User-Id": cred.uid }),
-    ...(cred.enterpriseId ? { "X-Enterprise-Id": cred.enterpriseId } : { "X-No-Enterprise-Id": "1" }),
+    ...(cred.enterpriseId
+      ? { "X-Enterprise-Id": cred.enterpriseId }
+      : { "X-No-Enterprise-Id": "1" }),
     ...(cred.domain === "" ? { "X-No-Department-Info": "1" } : { "X-Domain": cred.domain }),
     "X-Product": "SaaS",
   };
@@ -367,16 +405,22 @@ export async function refreshWorkBuddyToken(
   const accessToken = typeof data.accessToken === "string" ? data.accessToken : "";
   if (!response.ok || envelope.code !== 0 || accessToken === "") {
     throw new Error(
-      typeof envelope.msg === "string" && envelope.msg !== "" ? envelope.msg : `refresh HTTP ${response.status}`,
+      typeof envelope.msg === "string" && envelope.msg !== ""
+        ? envelope.msg
+        : `refresh HTTP ${response.status}`,
     );
   }
   return {
     ...cred,
     accessToken,
     refreshToken:
-      typeof data.refreshToken === "string" && data.refreshToken !== "" ? data.refreshToken : cred.refreshToken,
+      typeof data.refreshToken === "string" && data.refreshToken !== ""
+        ? data.refreshToken
+        : cred.refreshToken,
     expiresAtMs:
-      typeof data.expiresIn === "number" && data.expiresIn > 0 ? Date.now() + data.expiresIn * 1000 : cred.expiresAtMs,
+      typeof data.expiresIn === "number" && data.expiresIn > 0
+        ? Date.now() + data.expiresIn * 1000
+        : cred.expiresAtMs,
     domain: typeof data.domain === "string" && data.domain !== "" ? data.domain : cred.domain,
   };
 }
@@ -387,7 +431,14 @@ export async function startPluginLogin(base: string): Promise<{ state: string; a
   const nonce = cryptoRandom();
   const response = await fetch(`${base}/v2/plugin/auth/state?platform=CLI&nonce=${nonce}`, {
     method: "POST",
-    headers: { ...browserHeaders(base), "X-Product": "SaaS", "X-No-Authorization": "true", "X-No-User-Id": "1", "X-No-Enterprise-Id": "1", "X-No-Department-Info": "1" },
+    headers: {
+      ...browserHeaders(base),
+      "X-Product": "SaaS",
+      "X-No-Authorization": "true",
+      "X-No-User-Id": "1",
+      "X-No-Enterprise-Id": "1",
+      "X-No-Department-Info": "1",
+    },
     body: JSON.stringify({ nonce }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -396,7 +447,11 @@ export async function startPluginLogin(base: string): Promise<{ state: string; a
   const state = typeof data.state === "string" ? data.state : "";
   const authUrl = typeof data.authUrl === "string" ? data.authUrl : "";
   if (!response.ok || envelope.code !== 0 || !state || !authUrl) {
-    throw new Error(typeof envelope.msg === "string" && envelope.msg ? envelope.msg : "workbuddy login start failed");
+    throw new Error(
+      typeof envelope.msg === "string" && envelope.msg
+        ? envelope.msg
+        : "workbuddy login start failed",
+    );
   }
   return { state, authUrl };
 }
@@ -419,10 +474,20 @@ export async function pollPluginCredential(
   const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
     if (shouldAbort?.()) throw new Error("workbuddy login cancelled");
-    const response = await fetch(`${base}/v2/plugin/auth/token?state=${encodeURIComponent(state)}`, {
-      headers: { ...browserHeaders(base), "X-Product": "SaaS", "X-No-Authorization": "true", "X-No-User-Id": "1", "X-No-Enterprise-Id": "1", "X-No-Department-Info": "1" },
-      signal: AbortSignal.timeout(30_000),
-    });
+    const response = await fetch(
+      `${base}/v2/plugin/auth/token?state=${encodeURIComponent(state)}`,
+      {
+        headers: {
+          ...browserHeaders(base),
+          "X-Product": "SaaS",
+          "X-No-Authorization": "true",
+          "X-No-User-Id": "1",
+          "X-No-Enterprise-Id": "1",
+          "X-No-Department-Info": "1",
+        },
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
     const envelope = asRecord(await response.json().catch(() => undefined)) ?? {};
     if (envelope.code === 11217) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -431,19 +496,36 @@ export async function pollPluginCredential(
     const data = asRecord(envelope.data) ?? {};
     const accessToken = typeof data.accessToken === "string" ? data.accessToken : "";
     if (!response.ok || envelope.code !== 0 || accessToken === "") {
-      throw new Error(typeof envelope.msg === "string" && envelope.msg ? envelope.msg : "workbuddy login failed");
+      throw new Error(
+        typeof envelope.msg === "string" && envelope.msg ? envelope.msg : "workbuddy login failed",
+      );
     }
-    const jwt = asRecord(safeJson(Buffer.from((accessToken.split(".")[1] ?? "").padEnd(Math.ceil((accessToken.split(".")[1] ?? "").length / 4) * 4, "="), "base64url").toString("utf8"))) ?? {};
+    const jwt =
+      asRecord(
+        safeJson(
+          Buffer.from(
+            (accessToken.split(".")[1] ?? "").padEnd(
+              Math.ceil((accessToken.split(".")[1] ?? "").length / 4) * 4,
+              "=",
+            ),
+            "base64url",
+          ).toString("utf8"),
+        ),
+      ) ?? {};
     const uid =
       optionalString(data.uid) ?? optionalString(jwt.uid) ?? optionalString(jwt.sub) ?? "";
     const enterpriseId = optionalString(data.enterpriseId) ?? optionalString(data.enterprise_id);
     const cred: WorkBuddyCredentials = {
       accessToken,
       refreshToken: optionalString(data.refreshToken) ?? "",
-      expiresAtMs: typeof data.expiresIn === "number" && data.expiresIn > 0 ? Date.now() + data.expiresIn * 1000 : 0,
+      expiresAtMs:
+        typeof data.expiresIn === "number" && data.expiresIn > 0
+          ? Date.now() + data.expiresIn * 1000
+          : 0,
       uid,
       domain: optionalString(data.domain) ?? hostOf(base),
-      nickname: optionalString(data.nickname) ?? optionalString(jwt.email) ?? optionalString(jwt.name),
+      nickname:
+        optionalString(data.nickname) ?? optionalString(jwt.email) ?? optionalString(jwt.name),
       ...(enterpriseId ? { enterpriseId } : {}),
     };
     saveOwnStore(cred, storeName);

@@ -95,15 +95,16 @@ function transformUserMessage(
     }
     if (part.type === "file" && String(part.mediaType ?? "").startsWith("image/")) {
       hasImage = true;
-      parts.push({ type: "image_url", image_url: { url: dataContentToUrl(part as unknown as LanguageModelV3FilePart) } });
+      parts.push({
+        type: "image_url",
+        image_url: { url: dataContentToUrl(part as unknown as LanguageModelV3FilePart) },
+      });
     }
   }
   if (!hasImage) {
     return {
       role: "user",
-      content: parts
-        .map((part) => (part.type === "text" ? part.text : ""))
-        .join(""),
+      content: parts.map((part) => (part.type === "text" ? part.text : "")).join(""),
     };
   }
   return { role: "user", content: parts };
@@ -184,9 +185,10 @@ export function transformPrompt(prompt: LanguageModelV3Prompt): TransformedPromp
   return { messages };
 }
 
-export function transformTools(
-  tools: LanguageModelV3CallOptions["tools"],
-): { tools: WorkBuddyTool[]; ignoredTools: number } {
+export function transformTools(tools: LanguageModelV3CallOptions["tools"]): {
+  tools: WorkBuddyTool[];
+  ignoredTools: number;
+} {
   if (!tools?.length) return { tools: [], ignoredTools: 0 };
   const result: WorkBuddyTool[] = [];
   let ignoredTools = 0;

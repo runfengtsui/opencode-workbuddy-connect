@@ -16,16 +16,17 @@ import {
   chatHeaders,
   connectName,
   refreshWorkBuddyToken,
+  regionOfOptions,
   resolveWorkBuddyCredentials,
   saveOwnStore,
   type WorkBuddyCredentials,
   type WorkBuddyProviderOptions,
 } from "./auth.js";
-import { flashMaxTokensCap, PROVIDER_ID } from "./constants.js";
+import { flashMaxTokensCap, PROVIDER_ID, type WBRegion } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
 import { errorMessage, logPlugin, logWarn } from "./log.js";
 import { getModelDefinition, type WorkBuddyModelDefinition } from "./models.js";
-import { transformPrompt, transformTools, type WorkBuddyMessage, type WorkBuddyTool } from "./transform.js";
+import { transformPrompt, transformTools } from "./transform.js";
 
 // ---------------------------------------------------------------------------
 // Chunk shapes (pure OpenAI SSE, verified against the live gateway)
@@ -68,8 +69,12 @@ type ToolCallState = {
   pendingDeltas: string[];
 };
 
-function mapFinishReason(raw: string | undefined, hasToolCalls: boolean): LanguageModelV3FinishReason {
-  if (hasToolCalls || raw === "tool_calls" || raw === "function_call") return { unified: "tool-calls", raw };
+function mapFinishReason(
+  raw: string | undefined,
+  hasToolCalls: boolean,
+): LanguageModelV3FinishReason {
+  if (hasToolCalls || raw === "tool_calls" || raw === "function_call")
+    return { unified: "tool-calls", raw };
   if (raw === "length") return { unified: "length", raw };
   if (raw === "content_filter") return { unified: "content-filter", raw };
   if (!raw || raw === "stop") return { unified: "stop", raw };
@@ -83,7 +88,9 @@ function usageFromWorkBuddy(raw?: WorkBuddyChunk["usage"]): LanguageModelV3Usage
     inputTokens: {
       total: promptTokens,
       noCache:
-        promptTokens !== undefined && cachedTokens !== undefined ? promptTokens - cachedTokens : undefined,
+        promptTokens !== undefined && cachedTokens !== undefined
+          ? promptTokens - cachedTokens
+          : undefined,
       cacheRead: cachedTokens,
       cacheWrite: undefined,
     },
@@ -175,18 +182,23 @@ function resolveReasoningEffort(
 function buildRequestBody(
   modelID: string,
   options: LanguageModelV3CallOptions,
+  region: WBRegion,
 ): { body: Record<string, unknown>; warnings: SharedV3Warning[] } {
-  const model = getModelDefinition(modelID);
+  // Region-scoped: the same id can carry a different budget on each access
+  // point, and an id one region does not sell must not borrow the other's.
+  const model = getModelDefinition(modelID, region);
   const transformed = transformPrompt(options.prompt);
   const { tools, ignoredTools } = transformTools(options.tools);
   const warnings: SharedV3Warning[] = [];
   if (ignoredTools > 0) warnings.push({ type: "unsupported", feature: "provider-defined tools" });
-  if (options.stopSequences?.length) warnings.push({ type: "unsupported", feature: "stop sequences" });
+  if (options.stopSequences?.length)
+    warnings.push({ type: "unsupported", feature: "stop sequences" });
   if (options.responseFormat?.type === "json")
     warnings.push({ type: "unsupported", feature: "JSON response format" });
 
   let maxTokens = model?.maxTokens ?? 32_000;
-  if (options.maxOutputTokens && options.maxOutputTokens < maxTokens) maxTokens = options.maxOutputTokens;
+  if (options.maxOutputTokens && options.maxOutputTokens < maxTokens)
+    maxTokens = options.maxOutputTokens;
   maxTokens = flashMaxTokensCap(modelID, maxTokens);
 
   const body: Record<string, unknown> = {
@@ -216,7 +228,11 @@ function throwWorkBuddyApiError(
 ): never {
   let message = `WorkBuddy API error ${status}`;
   try {
-    const parsed = JSON.parse(body) as { error?: { message?: string }; msg?: string; message?: string };
+    const parsed = JSON.parse(body) as {
+      error?: { message?: string };
+      msg?: string;
+      message?: string;
+    };
     const detail = parsed.error?.message || parsed.msg || parsed.message;
     if (detail) message = `WorkBuddy API error ${status}: ${detail}`;
   } catch {
@@ -283,15 +299,28 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
         if (block) block.text += part.delta;
       }
       if (part.type === "tool-call") {
-        content.push({ type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, input: part.input });
+        content.push({
+          type: "tool-call",
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+        });
       }
       if (part.type === "finish") {
         finishReason = part.finishReason;
         usage = part.usage;
       }
-      if (part.type === "error") throw part.error instanceof Error ? part.error : new Error(String(part.error));
+      if (part.type === "error")
+        throw part.error instanceof Error ? part.error : new Error(String(part.error));
     }
-    return { content, finishReason, usage, warnings, request: result.request, response: result.response };
+    return {
+      content,
+      finishReason,
+      usage,
+      warnings,
+      request: result.request,
+      response: result.response,
+    };
   }
 
   async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
@@ -303,7 +332,11 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
     const detachAbort = () => signal?.removeEventListener("abort", abort);
 
     const credentials = await resolveWorkBuddyCredentials(this.providerOptions);
-    const { body, warnings } = buildRequestBody(this.modelId, options);
+    const { body, warnings } = buildRequestBody(
+      this.modelId,
+      options,
+      regionOfOptions(this.providerOptions),
+    );
     let opened: { response: Response; url: string };
     try {
       opened = await this.openRequest(credentials, body, abortController);
@@ -430,7 +463,12 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
           state.finished = true;
           const id = startToolCall(state);
           controller.enqueue({ type: "tool-input-end", id });
-          controller.enqueue({ type: "tool-call", toolCallId: id, toolName: state.name, input: state.arguments });
+          controller.enqueue({
+            type: "tool-call",
+            toolCallId: id,
+            toolName: state.name,
+            input: state.arguments,
+          });
           sawToolCall = true;
         };
 
@@ -448,7 +486,8 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
           if (!choice) return;
           // finish_reason can ride a chunk whose delta is a stub (verified:
           // the last chunk carries the usage plus an empty-content delta).
-          if (choice.finish_reason && choice.finish_reason !== "") rawFinishReason = choice.finish_reason;
+          if (choice.finish_reason && choice.finish_reason !== "")
+            rawFinishReason = choice.finish_reason;
           const delta = choice.delta;
           if (!delta) return;
           if (delta.reasoning_content) emitter.reasoning(delta.reasoning_content);
@@ -467,7 +506,15 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
               const index = tc.index ?? 0;
               let state = toolCalls[index];
               if (!state) {
-                state = { id: undefined, upstreamID: false, name: "", arguments: "", started: false, finished: false, pendingDeltas: [] };
+                state = {
+                  id: undefined,
+                  upstreamID: false,
+                  name: "",
+                  arguments: "",
+                  started: false,
+                  finished: false,
+                  pendingDeltas: [],
+                };
                 toolCalls[index] = state;
               }
               if (tc.id) {
@@ -491,12 +538,13 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
         };
 
         try {
-          outer: while (!done) {
+          while (!done) {
             const read = await reader.read();
             if (read.done) break;
             buffer += decoder.decode(read.value, { stream: true });
-            let newline: number;
-            while ((newline = buffer.indexOf("\n")) !== -1) {
+            for (;;) {
+              const newline = buffer.indexOf("\n");
+              if (newline === -1) break;
               const line = buffer.slice(0, newline).trim();
               buffer = buffer.slice(newline + 1);
               if (!line.startsWith("data:")) continue;
@@ -517,7 +565,7 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
                 }
               }
             }
-            if (done) break outer;
+            if (done) break;
           }
 
           emitter.closeOpenBlocks();
@@ -530,7 +578,10 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
           });
           controller.close();
         } catch (error) {
-          controller.enqueue({ type: "error", error: error instanceof Error ? error : new Error(String(error)) });
+          controller.enqueue({
+            type: "error",
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
           controller.enqueue({
             type: "finish",
             finishReason: { unified: "error", raw: undefined },
@@ -552,9 +603,9 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
  * `createWorkBuddy(providerOptions).languageModel(modelId)` (the same
  * contract as @ai-sdk/openai-compatible and the reference createQoder).
  */
-export function createWorkBuddy(
-  options?: WorkBuddyProviderOptions,
-): { languageModel(modelId: string): WorkBuddyLanguageModel } {
+export function createWorkBuddy(options?: WorkBuddyProviderOptions): {
+  languageModel(modelId: string): WorkBuddyLanguageModel;
+} {
   const providerOptions = options ?? {};
   return {
     languageModel(modelId: string): WorkBuddyLanguageModel {

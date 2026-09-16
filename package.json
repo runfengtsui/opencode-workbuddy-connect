@@ -2,7 +2,13 @@
   "name": "opencode-workbuddy-connect",
   "version": "0.1.0",
   "description": "WorkBuddy AI provider plugin for opencode",
-  "keywords": ["ai-sdk-provider", "opencode", "opencode-plugin", "workbuddy", "codebuddy"],
+  "keywords": [
+    "ai-sdk-provider",
+    "opencode",
+    "opencode-plugin",
+    "workbuddy",
+    "codebuddy"
+  ],
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,13 +19,23 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "npm run check && npm run lint && npm run build && node test/run.mjs",
+    "test:live": "npm run build && node test/live.mjs && node test/tools.mjs"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
+    "@biomejs/biome": "^2.5.13",
     "@opencode-ai/plugin": "1.17.13",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.2"

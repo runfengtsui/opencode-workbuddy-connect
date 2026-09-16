@@ -1,0 +1,60 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "agents": [{ "name": "cli", "models": ["hy3", "glm-5.3", "deepseek-v4-flash"] }],
+    "models": [
+      {
+        "id": "hy3",
+        "name": "Hy3",
+        "maxInputTokens": 192000,
+        "maxOutputTokens": 64000,
+        "supportsReasoning": true,
+        "supportsImages": true,
+        "credits": "x0.00 credits",
+        "reasoning": { "effort": "high", "summary": "auto" }
+      },
+      {
+        "id": "glm-5.3",
+        "name": "GLM-5.3",
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 64000,
+        "supportsReasoning": true,
+        "supportsImages": true,
+        "credits": "x0.52 credits",
+        "reasoning": { "supportedEfforts": ["low", "high", "max"], "defaultEffort": "high" }
+      },
+      {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek-V4-Flash",
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 50000,
+        "supportsReasoning": true,
+        "supportsImages": true,
+        "credits": "x0.17"
+      },
+      {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 64000,
+        "supportsReasoning": true,
+        "supportsImages": true,
+        "credits": "x0.79 credits"
+      },
+      {
+        "id": "hunyuan-image-v3.0",
+        "name": "Hunyuan Image V3",
+        "tags": ["text-to-image"]
+      },
+      {
+        "id": "brand-new-model",
+        "name": "Brand New",
+        "maxInputTokens": 262144,
+        "maxOutputTokens": 16000,
+        "supportsReasoning": false,
+        "supportsImages": false
+      }
+    ]
+  }
+}

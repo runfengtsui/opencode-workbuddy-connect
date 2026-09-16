@@ -23,7 +23,8 @@ function debugOn(): boolean {
 function threshold(): number {
   const value = flag("WORKBUDDY_LOG");
   if (value === "off" || value === "none" || value === "0") return Number.POSITIVE_INFINITY;
-  if (value === "debug" || value === "info" || value === "warn" || value === "error") return RANK[value];
+  if (value === "debug" || value === "info" || value === "warn" || value === "error")
+    return RANK[value];
   return debugOn() ? RANK.debug : RANK.info;
 }
 
@@ -33,7 +34,9 @@ function threshold(): number {
  * lookup is optional so an older/newer SDK can never break a request. */
 export interface LogClient {
   app?: {
-    log?: (args: { body: { service: string; level: LogLevel; message: string; extra?: Record<string, unknown> } }) => unknown;
+    log?: (args: {
+      body: { service: string; level: LogLevel; message: string; extra?: Record<string, unknown> };
+    }) => unknown;
   };
 }
 
@@ -45,7 +48,9 @@ export function installLogSink(client?: LogClient): void {
   if (typeof log !== "function") return;
   sink = (level, message) => {
     try {
-      Promise.resolve(log.call(app, { body: { service: "workbuddy", level, message } })).catch(() => {});
+      Promise.resolve(log.call(app, { body: { service: "workbuddy", level, message } })).catch(
+        () => {},
+      );
     } catch {
       /* logging must never break a request */
     }

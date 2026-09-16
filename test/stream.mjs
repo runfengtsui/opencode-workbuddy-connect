@@ -65,7 +65,16 @@ const check = (cond, msg) => {
   }
 };
 
-const types = (parts) => parts.filter((p) => p.type === "text-start" || p.type === "text-end" || p.type === "reasoning-start" || p.type === "reasoning-end").map((p) => p.type);
+const types = (parts) =>
+  parts
+    .filter(
+      (p) =>
+        p.type === "text-start" ||
+        p.type === "text-end" ||
+        p.type === "reasoning-start" ||
+        p.type === "reasoning-end",
+    )
+    .map((p) => p.type);
 
 // 1. Plain answer, reasoning then text, empty tool_calls on every delta.
 {
@@ -76,32 +85,66 @@ const types = (parts) => parts.filter((p) => p.type === "text-start" || p.type =
     frame(chunk({}), "stop"),
   ];
   const parts = await collect(frames);
-  const text = parts.filter((p) => p.type === "text-delta").map((p) => p.delta).join("");
-  const reasoning = parts.filter((p) => p.type === "reasoning-delta").map((p) => p.delta).join("");
+  const text = parts
+    .filter((p) => p.type === "text-delta")
+    .map((p) => p.delta)
+    .join("");
+  const reasoning = parts
+    .filter((p) => p.type === "reasoning-delta")
+    .map((p) => p.delta)
+    .join("");
   console.log(`text=${JSON.stringify(text)} reasoning=${JSON.stringify(reasoning)}`);
   console.log(`blocks: ${types(parts).join(",")}`);
   check(text === "4 is the answer", "text deltas lost or reordered");
   check(reasoning === "The user asks ", "reasoning deltas lost");
-  check(types(parts).join() === "reasoning-start,reasoning-end,text-start,text-end", "must be exactly 1 reasoning + 1 text block");
-  check(parts.at(-1).type === "finish" && parts.at(-1).finishReason.unified === "stop", "finish reason");
+  check(
+    types(parts).join() === "reasoning-start,reasoning-end,text-start,text-end",
+    "must be exactly 1 reasoning + 1 text block",
+  );
+  check(
+    parts.at(-1).type === "finish" && parts.at(-1).finishReason.unified === "stop",
+    "finish reason",
+  );
 }
 
 // 2. Interleaved reasoning/text stays one block per contiguous run.
 {
   const parts = await collect([
-    frame(chunk({ reasoning_content: "thin" })), frame(chunk({ content: "a" })),
-    frame(chunk({ reasoning_content: "k" })), frame(chunk({ content: "b" })),
+    frame(chunk({ reasoning_content: "thin" })),
+    frame(chunk({ content: "a" })),
+    frame(chunk({ reasoning_content: "k" })),
+    frame(chunk({ content: "b" })),
   ]);
   console.log(`interleaved blocks: ${types(parts).join(",")}`);
-  check(types(parts).filter((t) => t === "text-start").length === 2, "two text runs -> two text-start");
-  check(parts.filter((p) => p.type === "text-delta").map((p) => p.delta).join("") === "ab", "text preserved");
+  check(
+    types(parts).filter((t) => t === "text-start").length === 2,
+    "two text runs -> two text-start",
+  );
+  check(
+    parts
+      .filter((p) => p.type === "text-delta")
+      .map((p) => p.delta)
+      .join("") === "ab",
+    "text preserved",
+  );
 }
 
 // 3. A real tool call still closes text and emits the call.
 {
   const parts = await collect([
     frame(chunk({ content: "sure" })),
-    frame(chunk({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "get_weather", arguments: '{"ci' } }] })),
+    frame(
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            id: "call_1",
+            type: "function",
+            function: { name: "get_weather", arguments: '{"ci' },
+          },
+        ],
+      }),
+    ),
     frame(chunk({ tool_calls: [{ index: 0, function: { arguments: 'ty":"sh"}' } }] })),
     frame(chunk({}), "tool_calls"),
   ]);
@@ -110,7 +153,10 @@ const types = (parts) => parts.filter((p) => p.type === "text-start" || p.type =
   check(!!call && call.toolName === "get_weather", "tool call not emitted");
   check(call?.input === '{"city":"sh"}', "arguments not aggregated");
   check(parts.at(-1).finishReason.unified === "tool-calls", "finish reason should be tool-calls");
-  check(parts.some((p) => p.type === "text-end"), "text block must close before the call");
+  check(
+    parts.some((p) => p.type === "text-end"),
+    "text block must close before the call",
+  );
 }
 
 if (fail) {

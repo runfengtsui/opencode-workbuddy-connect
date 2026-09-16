@@ -7,6 +7,7 @@ import {
   startPluginLogin,
   type WorkBuddyProviderOptions,
 } from "./auth.js";
+import { refreshModelCatalogue } from "./catalogue.js";
 import {
   CN_STORE_NAME,
   INTL_STORE_NAME,
@@ -14,6 +15,7 @@ import {
   PROVIDER_ID_CN,
   PROVIDER_NAME,
   USER_AGENT,
+  type WBRegion,
   WORKBUDDY_BASE_URL_ENV,
   WORKBUDDY_CN_BASE,
   WORKBUDDY_INTL_BASE,
@@ -21,12 +23,22 @@ import {
 } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
 import { createWorkBuddy, WorkBuddyLanguageModel } from "./language-model.js";
-import { errorMessage, logError, logInfo, logPlugin, installLogSink, type LogClient } from "./log.js";
-import { displayName, WORKBUDDY_MODELS, type WorkBuddyModelDefinition } from "./models.js";
+import {
+  errorMessage,
+  installLogSink,
+  type LogClient,
+  logError,
+  logInfo,
+  logPlugin,
+} from "./log.js";
+import { defaultModelID, displayName, type WorkBuddyModelDefinition } from "./models.js";
 
 export { createWorkBuddy, WorkBuddyLanguageModel };
 
 type WorkBuddyPluginOptions = PluginOptions & {
+  /** Integration point. Set by the region instance; a tuple-form entry may
+   * override it, which is also what re-points the model table and token env. */
+  region?: WBRegion;
   providerID?: string;
   providerName?: string;
   storeName?: string;
@@ -45,6 +57,8 @@ type WorkBuddyPluginOptions = PluginOptions & {
 interface Region {
   /** opencode plugin module id -- must differ per instance. */
   moduleID: string;
+  /** Which model catalogue, token env and desktop cache this instance reads. */
+  region: WBRegion;
   providerID: string;
   providerName: string;
   /** Own-credential-store file, so a CN login never clobbers an intl one. */
@@ -56,6 +70,7 @@ interface Region {
 
 const INTL_REGION: Region = {
   moduleID: "opencode-workbuddy-connect",
+  region: "intl",
   providerID: PROVIDER_ID,
   providerName: PROVIDER_NAME,
   storeName: INTL_STORE_NAME,
@@ -63,16 +78,16 @@ const INTL_REGION: Region = {
 
 const CN_REGION: Region = {
   moduleID: "opencode-workbuddy-connect-cn",
+  region: "cn",
   providerID: PROVIDER_ID_CN,
   providerName: `${PROVIDER_NAME} (CN)`,
   storeName: CN_STORE_NAME,
   baseUrl: WORKBUDDY_CN_BASE,
 };
 
-/** Region defaults first, explicit plugin options on top (a tuple-form
- * `[path, options]` entry or a hand-authored shim can override any field). */
 function withRegion(region: Region, options?: PluginOptions): WorkBuddyPluginOptions {
   return {
+    region: region.region,
     providerID: region.providerID,
     providerName: region.providerName,
     storeName: region.storeName,
@@ -81,7 +96,10 @@ function withRegion(region: Region, options?: PluginOptions): WorkBuddyPluginOpt
   };
 }
 
-function optionString(options: PluginOptions | undefined, key: keyof WorkBuddyPluginOptions): string | undefined {
+function optionString(
+  options: PluginOptions | undefined,
+  key: keyof WorkBuddyPluginOptions,
+): string | undefined {
   const value = options?.[key];
   return typeof value === "string" && value !== "" ? value : undefined;
 }
@@ -92,6 +110,14 @@ function providerID(options?: PluginOptions): string {
 
 function providerName(options?: PluginOptions): string {
   return optionString(options, "providerName") || PROVIDER_NAME;
+}
+
+/** The integration point these options describe. An explicit `region` wins,
+ * then the provider id -- so a hand-authored shim still gets the right table. */
+function regionOf(options?: PluginOptions): WBRegion {
+  const explicit = optionString(options, "region");
+  if (explicit === "cn" || explicit === "intl") return explicit;
+  return providerID(options) === PROVIDER_ID_CN ? "cn" : "intl";
 }
 
 // The login/refresh base URL: an explicit option (a pinned region sets one)
@@ -111,7 +137,11 @@ function loginBase(options?: PluginOptions): string {
 // conversation genuinely runs to ~1M tokens before compaction instead of the
 // legacy 200k cliff. WorkBuddy needs no wire parameter for this: 1M is the
 // model's native budget (deepseek-v4-pro/flash, glm-5.2, kimi-k3-1).
-function modelLimit(model: WorkBuddyModelDefinition): { context: number; input: number; output: number } {
+function modelLimit(model: WorkBuddyModelDefinition): {
+  context: number;
+  input: number;
+  output: number;
+} {
   return { context: model.contextWindow, input: model.contextWindow, output: model.maxTokens };
 }
 
@@ -128,7 +158,9 @@ function legacyModelConfig(model: WorkBuddyModelDefinition): Record<string, unkn
   // Thinking-strength picker: v1 Record form survives opencode's config
   // schema and rides the request as body.reasoningEffort.
   if (model.efforts.length > 0) {
-    config.variants = Object.fromEntries(model.efforts.map((effort) => [effort, { reasoningEffort: effort }]));
+    config.variants = Object.fromEntries(
+      model.efforts.map((effort) => [effort, { reasoningEffort: effort }]),
+    );
   }
   return config;
 }
@@ -151,8 +183,9 @@ interface LegacyAgentConfig {
   variant?: string;
 }
 
-function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
+async function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): Promise<void> {
   const id = providerID(options);
+  const region = regionOf(options);
   cfg.provider ??= {};
   cfg.provider[id] ??= {};
   const current = cfg.provider[id];
@@ -162,6 +195,7 @@ function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
   // The npm loader calls createWorkBuddy(current.options); these three are
   // what put the RIGHT store, host and provider label on every request.
   if (current.options.providerID === undefined) current.options.providerID = id;
+  if (current.options.region === undefined) current.options.region = region;
   const store = optionString(options, "storeName");
   if (store && current.options.storeName === undefined) current.options.storeName = store;
   const apiKey = optionString(options, "apiKey");
@@ -172,11 +206,21 @@ function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
   if (baseUrl && current.options.baseUrl === undefined) current.options.baseUrl = baseUrl;
   current.options.baseURL ??= loginBase(options);
   current.models ??= {};
-  for (const model of WORKBUDDY_MODELS) {
+  // Ask the endpoint for the models this credential can actually buy first; on
+  // any failure this falls back to the per-region static table (never throws).
+  const models = await refreshModelCatalogue(region, {
+    apiKey: optionString(options, "apiKey"),
+    userID: optionString(options, "userID"),
+    baseUrl: optionString(options, "baseUrl"),
+    storeName: store,
+    providerID: id,
+  });
+  for (const model of models) {
     current.models[model.id] = { ...legacyModelConfig(model), ...(current.models[model.id] ?? {}) };
   }
-  if (options?.setDefault === true && !cfg.model) cfg.model = `${id}/hy3`;
-  logInfo(`legacy: registered ${WORKBUDDY_MODELS.length} models (1M tier included)`);
+  const pin = `${id}/${defaultModelID(region)}`;
+  if (options?.setDefault === true && !cfg.model) cfg.model = pin;
+  logInfo(`legacy: registered ${models.length} models for ${region} (1M tier included)`);
 
   // Subagents on the free model; the main agent keeps the user's choice.
   cfg.agent ??= {};
@@ -185,13 +229,13 @@ function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): void {
     if (agents[name] || cfg.agents?.[name]) return;
     agents[name] = value;
   };
-  ensureAgent("plan", { model: `${id}/hy3` });
-  ensureAgent("general", { model: `${id}/hy3` });
-  ensureAgent("explore", { model: `${id}/hy3` });
-  ensureAgent("title", { model: `${id}/hy3` });
+  ensureAgent("plan", { model: pin });
+  ensureAgent("general", { model: pin });
+  ensureAgent("explore", { model: pin });
+  ensureAgent("title", { model: pin });
   // Compaction sees the WHOLE conversation: pin it to a 1M-capable model so a
   // 1M chat can still compact without escalating anything.
-  ensureAgent("compaction", { model: `${id}/hy3` });
+  ensureAgent("compaction", { model: pin });
 }
 
 function v2ModelConfig(model: WorkBuddyModelDefinition, options?: PluginOptions) {
@@ -210,7 +254,11 @@ function v2ModelConfig(model: WorkBuddyModelDefinition, options?: PluginOptions)
       settings: {},
     },
     capabilities: { tools: true, input: model.input, output: ["text"] },
-    variants: model.efforts.map((effort) => ({ id: effort, headers: {}, body: { reasoningEffort: effort } })),
+    variants: model.efforts.map((effort) => ({
+      id: effort,
+      headers: {},
+      body: { reasoningEffort: effort },
+    })),
     time: { released: 0 },
     cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
     status: "active" as const,
@@ -267,23 +315,36 @@ async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promis
     });
     logPlugin("setup[v2]: integration ok");
 
+    const region = regionOf(opts);
+    const models = await refreshModelCatalogue(region, {
+      apiKey: optionString(opts, "apiKey"),
+      userID: optionString(opts, "userID"),
+      baseUrl: optionString(opts, "baseUrl"),
+      storeName: optionString(opts, "storeName"),
+      providerID: id,
+    });
     await ctx.catalog.transform((catalog) => {
       catalog.provider.update(id, (provider) => {
         provider.name = name;
         provider.integrationID = id;
-        provider.api = { type: "aisdk", package: import.meta.url, url: loginBase(opts), settings: {} };
+        provider.api = {
+          type: "aisdk",
+          package: import.meta.url,
+          url: loginBase(opts),
+          settings: {},
+        };
         provider.request = { headers: {}, body: {} };
         const apiKey = optionString(opts, "apiKey");
         if (apiKey) provider.request.body.apiKey = apiKey;
       });
-      for (const model of WORKBUDDY_MODELS) {
+      for (const model of models) {
         catalog.model.update(id, model.id, (draft) => {
           Object.assign(draft, v2ModelConfig(model, opts));
         });
       }
-      if (opts.setDefault === true) catalog.model.default.set(id, "hy3");
+      if (opts.setDefault === true) catalog.model.default.set(id, defaultModelID(region));
     });
-    logPlugin("setup[v2]: catalog ok");
+    logPlugin(`setup[v2]: catalog ok (${models.length} models, ${region})`);
 
     await ctx.aisdk.language(async (event) => {
       try {
@@ -291,7 +352,11 @@ async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promis
         const connection = await ctx.integration.connection
           .active(id)
           .then(async (active) =>
-            active ? ((await ctx.integration.connection.resolve(active)) as StoredCredentialShape | undefined) : undefined,
+            active
+              ? ((await ctx.integration.connection.resolve(active)) as
+                  | StoredCredentialShape
+                  | undefined)
+              : undefined,
           )
           .catch(() => undefined);
         const stored = connection ? storedToOptions(connection) : {};
@@ -333,7 +398,7 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
           storeName: store,
           providerID: id,
         };
-        return resolved as Record<string, any>;
+        return resolved as Record<string, unknown>;
       },
       methods: [
         {
@@ -361,16 +426,23 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
                       access: cred.accessToken,
                       expires: cred.expiresAtMs,
                       accountId: cred.uid,
-                      metadata: { userID: cred.uid, baseUrl: cred.domain ? `https://${cred.domain}` : base },
+                      metadata: {
+                        userID: cred.uid,
+                        baseUrl: cred.domain ? `https://${cred.domain}` : base,
+                      },
                     };
                   } catch (error) {
-                    logError(`auth: browser login failed: ${error instanceof Error ? error.message : String(error)}`);
+                    logError(
+                      `auth: browser login failed: ${error instanceof Error ? error.message : String(error)}`,
+                    );
                     return { type: "failed" as const };
                   }
                 },
               };
             } catch (error) {
-              logError(`auth: login start failed: ${error instanceof Error ? error.message : String(error)}`);
+              logError(
+                `auth: login start failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
               return {
                 url: base,
                 instructions: `${name} login start failed; check WORKBUDDY_BASE_URL / provider options.`,
@@ -408,7 +480,10 @@ function legacyHooks(options?: WorkBuddyPluginOptions): Hooks {
               data: { providerID: id, uid: cred.uid, expiresAtMs: cred.expiresAtMs, base },
             };
           } catch (error) {
-            return { output: `Not authenticated: ${error instanceof Error ? error.message : String(error)}`, data: { ok: false } };
+            return {
+              output: `Not authenticated: ${error instanceof Error ? error.message : String(error)}`,
+              data: { ok: false },
+            };
           }
         },
       }),

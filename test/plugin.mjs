@@ -4,9 +4,13 @@
 // credential store that cannot clobber the other region's.
 // Run: node test/plugin.mjs
 import { definePlugin } from "../dist/index.js";
+import { modelTable } from "../dist/models.js";
+
+process.env.WORKBUDDY_DISABLE_MODEL_DISCOVERY = "1";
 
 const EXPECT = {
   intl: {
+    region: "intl",
     pluginID: "opencode-workbuddy-connect",
     providerID: "workbuddy",
     name: "WorkBuddy AI",
@@ -17,6 +21,7 @@ const EXPECT = {
     baseURL: "https://www.workbuddy.ai",
   },
   cn: {
+    region: "cn",
     pluginID: "opencode-workbuddy-connect-cn",
     providerID: "workbuddy-cn",
     name: "WorkBuddy AI (CN)",
@@ -47,13 +52,19 @@ for (const [region, want] of Object.entries(EXPECT)) {
 
   // The auth hook binds exactly one provider -- that is why a region needs
   // its own plugin instance.
-  check(hooks.auth.provider === want.providerID, `auth.provider ${hooks.auth.provider} != ${want.providerID}`);
+  check(
+    hooks.auth.provider === want.providerID,
+    `auth.provider ${hooks.auth.provider} != ${want.providerID}`,
+  );
 
   const cfg = { provider: {}, model: undefined };
   await hooks.config(cfg);
 
   // One integration point must never register under the other's id.
-  check(Object.keys(cfg.provider).join() === want.providerID, `providers registered: ${Object.keys(cfg.provider)}`);
+  check(
+    Object.keys(cfg.provider).join() === want.providerID,
+    `providers registered: ${Object.keys(cfg.provider)}`,
+  );
   const p = cfg.provider[want.providerID];
   check(!!p, "provider not registered");
   check(p.name === want.name, `provider name ${p.name} != ${want.name}`);
@@ -61,20 +72,53 @@ for (const [region, want] of Object.entries(EXPECT)) {
   // These are what createWorkBuddy receives: the store keeps logins apart and
   // the pinned base keeps CN traffic off the international endpoint.
   check(p.options.providerID === want.providerID, `options.providerID ${p.options.providerID}`);
-  check(p.options.storeName === want.store, `options.storeName ${p.options.storeName} != ${want.store}`);
-  check(p.options.baseURL === want.baseURL, `options.baseURL ${p.options.baseURL} != ${want.baseURL}`);
-  check(p.options.baseUrl === want.baseUrl, `options.baseUrl ${p.options.baseUrl} != ${want.baseUrl}`);
+  check(
+    p.options.storeName === want.store,
+    `options.storeName ${p.options.storeName} != ${want.store}`,
+  );
+  check(
+    p.options.baseURL === want.baseURL,
+    `options.baseURL ${p.options.baseURL} != ${want.baseURL}`,
+  );
+  check(
+    p.options.baseUrl === want.baseUrl,
+    `options.baseUrl ${p.options.baseUrl} != ${want.baseUrl}`,
+  );
 
   const models = Object.values(p.models);
-  console.log(`provider=${p.name} models=${models.length} store=${p.options.storeName} base=${p.options.baseURL}`);
-  for (const m of models) check(m.limit?.context && m.limit.context === m.limit.input, `limit ${m.name}`);
+  console.log(
+    `provider=${p.name} models=${models.length} store=${p.options.storeName} base=${p.options.baseURL}`,
+  );
+  for (const m of models)
+    check(m.limit?.context && m.limit.context === m.limit.input, `limit ${m.name}`);
   const flash = p.models["deepseek-v4-flash"];
   check(flash?.limit?.context === 1_000_000, "deepseek-v4-flash ctx not 1M");
   check(!!flash?.variants?.max?.reasoningEffort, "effort variants missing");
 
+  // Each integration point must offer ITS OWN catalogue. This is the guard
+  // against the old single union table, which sold CN users `hy4-preview-f` --
+  // an international id the CN endpoint has never listed.
+  const staticIds = new Set(modelTable(want.region).map((m) => m.id));
+  check(
+    Object.keys(p.models).length === staticIds.size,
+    `registered ${Object.keys(p.models).length} != static ${staticIds.size}`,
+  );
+  for (const id of Object.keys(p.models))
+    check(staticIds.has(id), `model ${id} not in the ${want.region} table`);
+  check(staticIds.has("hy3"), `${want.region} table lost hy3 (the subagent pin)`);
+  check(
+    staticIds.has("hy4-preview-f") === (want.region === "intl"),
+    `hy4-preview-f must be intl-only, seen on ${want.region}`,
+  );
+
   // Default config must not clobber a user-set model.
   check(!cfg.model, "setDefault not requested but cfg.model set");
-  check(!Object.keys(cfg.agent ?? {}).some((k) => !["plan", "general", "explore", "title", "compaction"].includes(k)), "unexpected agent pin");
+  check(
+    !Object.keys(cfg.agent ?? {}).some(
+      (k) => !["plan", "general", "explore", "title", "compaction"].includes(k),
+    ),
+    "unexpected agent pin",
+  );
   for (const [name, agent] of Object.entries(cfg.agent ?? {})) {
     check(agent.model === `${want.providerID}/hy3`, `agent ${name} -> ${agent.model}`);
   }
@@ -90,16 +134,27 @@ for (const [region, want] of Object.entries(EXPECT)) {
   console.log(`account tool: ${tools.join(",")}`);
 
   // Options from a tuple entry still override the region defaults.
-  const overridden = await definePlugin(region).server({}, { baseUrl: "https://gateway.example.test", storeName: "x.json" });
+  const overridden = await definePlugin(region).server(
+    {},
+    { baseUrl: "https://gateway.example.test", storeName: "x.json" },
+  );
   const ocfg = { provider: {} };
   await overridden.config(ocfg);
   const op = ocfg.provider[want.providerID].options;
-  check(op.baseUrl === "https://gateway.example.test", `option override baseUrl lost: ${op.baseUrl}`);
+  check(
+    op.baseUrl === "https://gateway.example.test",
+    `option override baseUrl lost: ${op.baseUrl}`,
+  );
   check(op.storeName === "x.json", `option override store lost: ${op.storeName}`);
-  check(op.baseURL === "https://gateway.example.test", `baseURL not derived from override: ${op.baseURL}`);
+  check(
+    op.baseURL === "https://gateway.example.test",
+    `baseURL not derived from override: ${op.baseURL}`,
+  );
 }
 
-console.log(`\ndefault export = intl: ${JSON.stringify((await import("../dist/index.js")).default.id)}`);
+console.log(
+  `\ndefault export = intl: ${JSON.stringify((await import("../dist/index.js")).default.id)}`,
+);
 
 if (fail) {
   console.log(`FAIL x${fail}`);
