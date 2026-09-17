@@ -8,6 +8,61 @@ import { modelTable } from "../dist/models.js";
 
 process.env.WORKBUDDY_DISABLE_MODEL_DISCOVERY = "1";
 
+let fail = 0;
+const check = (cond, msg) => {
+  if (!cond) {
+    console.log(`FAIL: ${msg}`);
+    fail++;
+  }
+};
+
+// --- no-auth pass: neither region logged in -------------------------------
+
+// --- no-auth pass: neither region logged in -------------------------------
+// Both integration points share one process, so the offline placeholder must
+// appear exactly ONCE (first region to set up wins) and the other must stay
+// silent. Selecting the placeholder must report a login prompt, not a model.
+//
+// Isolate from any real machine credential: point the desktop-auth discovery at
+// a nonexistent file and clear both token envs, so neither region resolves a
+// credential.
+{
+  process.env.WORKBUDDY_AUTH_FILE = "/nonexistent/workbuddy-test/no-such-file.info";
+  delete process.env.WORKBUDDY_TOKEN;
+  delete process.env.WORKBUDDY_CN_TOKEN;
+  delete process.env.WORKBUDDY_CONFIG_DIR;
+  delete process.env.CODEBUDDY_CONFIG_DIR;
+
+  const seen = new Map();
+  for (const region of ["intl", "cn"]) {
+    const plugin = definePlugin(region);
+    const hooks = await plugin.server(
+      { project: {}, client: {} },
+      {
+        storeName: `workbuddy-test-nonexistent-${region}.json`,
+      },
+    );
+    const cfg = { provider: {}, model: undefined };
+    await hooks.config(cfg);
+    const id = plugin.id;
+    const pid = id === "opencode-workbuddy-connect" ? "workbuddy" : "workbuddy-cn";
+    seen.set(region, Object.keys(cfg.provider[pid].models));
+  }
+  const offlineRegions = [...seen.entries()].filter(([, m]) => m.includes("workbuddy-offline"));
+  check(
+    offlineRegions.length === 1,
+    `offline placeholder must appear exactly once; seen on ${offlineRegions.map(([r]) => r).join(",")}`,
+  );
+  const silentRegions = [...seen.entries()].filter(([, m]) => m.length === 0);
+  check(
+    silentRegions.length === 1,
+    `one unauthenticated region must stay silent; silent=${silentRegions.map(([r]) => r).join(",")}`,
+  );
+  console.log(
+    `offline: placeholder on ${offlineRegions[0]?.[0]}, silent on ${silentRegions[0]?.[0]}`,
+  );
+}
+
 const EXPECT = {
   intl: {
     region: "intl",
@@ -32,13 +87,29 @@ const EXPECT = {
   },
 };
 
-let fail = 0;
-const check = (cond, msg) => {
-  if (!cond) {
-    console.log(`FAIL: ${msg}`);
-    fail++;
+// With no auth, the placeholder model must reject with a login instruction.
+{
+  const { WorkBuddyLanguageModel } = await import("../dist/language-model.js");
+  let threw;
+  try {
+    const lm = new WorkBuddyLanguageModel("workbuddy-offline", { providerID: "workbuddy" });
+    await lm.doStream({ prompt: [], messages: [], mode: {}, inputFormat: "messages" });
+  } catch (error) {
+    threw = error;
   }
-};
+  check(
+    threw &&
+      /offline|logged in/i.test(String(threw.message)) &&
+      /connect workbuddy/.test(String(threw.message)),
+    `offline model should ask to /connect, got: ${threw?.message}`,
+  );
+}
+
+// With both token envs present, each region is "authenticated" and must
+// register its full per-region static table (see the offline-gating above for
+// the no-auth contract).
+process.env.WORKBUDDY_TOKEN = "intl-test-token";
+process.env.WORKBUDDY_CN_TOKEN = "cn-test-token";
 
 for (const [region, want] of Object.entries(EXPECT)) {
   console.log(`\n--- ${region} ---`);

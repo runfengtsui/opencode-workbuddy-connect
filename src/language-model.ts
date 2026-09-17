@@ -25,7 +25,7 @@ import {
 import { flashMaxTokensCap, PROVIDER_ID, type WBRegion } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
 import { errorMessage, logPlugin, logWarn } from "./log.js";
-import { getModelDefinition, type WorkBuddyModelDefinition } from "./models.js";
+import { getModelDefinition, OFFLINE_MODEL_ID, type WorkBuddyModelDefinition } from "./models.js";
 import { transformPrompt, transformTools } from "./transform.js";
 
 // ---------------------------------------------------------------------------
@@ -324,6 +324,13 @@ export class WorkBuddyLanguageModel implements LanguageModelV3 {
   }
 
   async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
+    if (this.modelId === OFFLINE_MODEL_ID) {
+      // The placeholder shown when nothing is authenticated: selecting it must
+      // point at login instead of firing a request that cannot succeed.
+      throw new Error(
+        `WorkBuddy is offline — no account is logged in. Run \`/connect ${this.provider}\` in opencode to authenticate.`,
+      );
+    }
     const abortController = new AbortController();
     const signal = options.abortSignal;
     const abort = () => abortController.abort(signal?.reason);

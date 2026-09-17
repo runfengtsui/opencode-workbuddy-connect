@@ -87,6 +87,24 @@ export default definePlugin("cn");
 Options passed to an entry always win over the region defaults, so you can pin
 a custom `baseUrl` / `storeName` per integration point.
 
+### What shows when nothing is logged in
+
+The model list tracks login state, so it never advertises models the account
+cannot actually buy:
+
+- **Neither endpoint logged in** — a single offline placeholder model
+  `workbuddy-offline` (named *WorkBuddy (offline — login required)*) is shown,
+  proving the plugin loaded; the other endpoint stays silent. Selecting it
+  prompts a `/connect` login instead of firing a request that cannot succeed.
+- **Exactly one logged in** — only that account's model list is shown; the
+  unauthenticated endpoint shows no models.
+- **Both logged in** — both endpoints' model lists render normally (each
+  independent and region-isolated).
+
+The decision uses a **non-network** credential-existence check (env var / own
+store / desktop auth file), so being unauthenticated never pings the endpoint
+or logs any login failure.
+
 ## Authentication
 
 The first successful source wins, in this order:

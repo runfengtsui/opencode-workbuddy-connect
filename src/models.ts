@@ -478,6 +478,24 @@ export function bundledModels(region: WBRegion): WorkBuddyModelDefinition[] {
   return region === "cn" ? BUNDLED_CN_MODELS : BUNDLED_INTL_MODELS;
 }
 
+/**
+ * A single stand-in model shown only when NEITHER integration point is logged
+ * in: it proves the plugin loaded without pretending to offer models the
+ * account cannot buy. Selecting it fails loudly with a login prompt, and the
+ * provider it lives under still exposes /connect so the user can authenticate.
+ */
+export const OFFLINE_MODEL_ID = "workbuddy-offline";
+
+export const OFFLINE_MODEL: WorkBuddyModelDefinition = {
+  id: OFFLINE_MODEL_ID,
+  name: "WorkBuddy (offline — login required)",
+  reasoning: false,
+  efforts: [],
+  input: ["text"],
+  contextWindow: 200_000,
+  maxTokens: 8_192,
+};
+
 // --- product config cache (same file the WorkBuddy desktop writes) ---------
 
 export type RawProductModel = {

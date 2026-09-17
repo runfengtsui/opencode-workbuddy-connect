@@ -336,6 +336,21 @@ export async function resolveWorkBuddyCredentials(
   );
 }
 
+/**
+ * Non-throwing check for *whether any credential exists* for a region, without
+ * doing a network refresh. Used to decide whether a provider instance should
+ * register its model list or stay quiet (so an unauthenticated provider does
+ * not advertise models the account cannot actually buy).
+ */
+export function hasWorkBuddyCredentials(options: WorkBuddyProviderOptions = {}): boolean {
+  const region = regionOfOptions(options);
+  const envToken = region === "cn" ? WORKBUDDY_CN_TOKEN_ENV : WORKBUDDY_TOKEN_ENV;
+  if (readEnvSafe(envToken)) return true;
+  if (readOwnStore(options.storeName)) return true;
+  if (readDesktopCredential(region)) return true;
+  return false;
+}
+
 export function baseUrlFor(
   cred: WorkBuddyCredentials,
   options: WorkBuddyProviderOptions = {},

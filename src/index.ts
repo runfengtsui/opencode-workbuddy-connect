@@ -1,6 +1,7 @@
 import { type Hooks, type PluginInput, type PluginOptions, tool } from "@opencode-ai/plugin";
 import type { PluginContext } from "@opencode-ai/plugin/v2/promise";
 import {
+  hasWorkBuddyCredentials,
   parseWorkBuddyAuth,
   pollPluginCredential,
   resolveWorkBuddyCredentials,
@@ -31,7 +32,12 @@ import {
   logInfo,
   logPlugin,
 } from "./log.js";
-import { defaultModelID, displayName, type WorkBuddyModelDefinition } from "./models.js";
+import {
+  defaultModelID,
+  displayName,
+  OFFLINE_MODEL,
+  type WorkBuddyModelDefinition,
+} from "./models.js";
 import { dailyCheckin, fetchQuota, formatQuota } from "./quota.js";
 
 export { createWorkBuddy, WorkBuddyLanguageModel };
@@ -121,6 +127,36 @@ function regionOf(options?: PluginOptions): WBRegion {
   return providerID(options) === PROVIDER_ID_CN ? "cn" : "intl";
 }
 
+// When NEITHER integration point is authenticated, exactly ONE of them is asked
+// to surface the shared offline placeholder, so the user sees "the plugin loaded"
+// once rather than two identical stubs. The two provider instances share this
+// process, so a plain flag coordinates them without any cross-instance channel.
+const OFFLINE_SLEEPING_REGIONS = new Set<WBRegion>();
+
+type SetupDecision =
+  | { kind: "live" } // authenticated: register real (catalogue/static) models
+  | { kind: "offline" } // first unauthenticated region: show the placeholder
+  | { kind: "silent" }; // second unauthenticated region: show nothing
+
+/**
+ * Decide what a region may register:
+ *   - has a credential           -> "live"   (real models, fetched below)
+ *   - no credential, first one   -> "offline" (the single shared placeholder)
+ *   - no credential, later one   -> "silent"  (placeholder already shown)
+ */
+function setupDecision(region: WBRegion, options?: PluginOptions): SetupDecision {
+  const opts = {
+    ...(options as WorkBuddyProviderOptions | undefined),
+    region,
+  } as WorkBuddyProviderOptions;
+  if (hasWorkBuddyCredentials(opts)) return { kind: "live" };
+  if (OFFLINE_SLEEPING_REGIONS.size === 0) {
+    OFFLINE_SLEEPING_REGIONS.add(region);
+    return { kind: "offline" };
+  }
+  return { kind: "silent" };
+}
+
 // The login/refresh base URL: an explicit option (a pinned region sets one)
 // beats WORKBUDDY_BASE_URL, which beats the international default. A CN
 // desktop login (domain www.workbuddy.cn) is discovered at request time;
@@ -207,8 +243,26 @@ async function applyLegacyConfig(cfg: LegacyConfig, options?: PluginOptions): Pr
   if (baseUrl && current.options.baseUrl === undefined) current.options.baseUrl = baseUrl;
   current.options.baseURL ??= loginBase(options);
   current.models ??= {};
-  // Ask the endpoint for the models this credential can actually buy first; on
-  // any failure this falls back to the per-region static table (never throws).
+
+  const decision = setupDecision(region, options);
+  if (decision.kind === "silent") {
+    logInfo(
+      `legacy: ${region} not authenticated and offline placeholder already shown -- no models`,
+    );
+    return;
+  }
+  if (decision.kind === "offline") {
+    current.models[OFFLINE_MODEL.id] = {
+      ...legacyModelConfig(OFFLINE_MODEL),
+      ...(current.models[OFFLINE_MODEL.id] ?? {}),
+    };
+    logInfo(`legacy: ${region} not authenticated -- registered offline placeholder only`);
+    return;
+  }
+
+  // Authenticated: ask the endpoint for the models this credential can actually
+  // buy first; on any failure this falls back to the per-region static table
+  // (never throws).
   const models = await refreshModelCatalogue(region, {
     apiKey: optionString(options, "apiKey"),
     userID: optionString(options, "userID"),
@@ -317,13 +371,24 @@ async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promis
     logPlugin("setup[v2]: integration ok");
 
     const region = regionOf(opts);
-    const models = await refreshModelCatalogue(region, {
-      apiKey: optionString(opts, "apiKey"),
-      userID: optionString(opts, "userID"),
-      baseUrl: optionString(opts, "baseUrl"),
-      storeName: optionString(opts, "storeName"),
-      providerID: id,
-    });
+    const decision = setupDecision(region, opts);
+    let models: WorkBuddyModelDefinition[];
+    if (decision.kind === "silent") {
+      logInfo(`setup[v2]: ${region} not authenticated and offline placeholder already shown`);
+      return;
+    }
+    if (decision.kind === "offline") {
+      models = [OFFLINE_MODEL];
+      logInfo(`setup[v2]: ${region} not authenticated -- registering offline placeholder only`);
+    } else {
+      models = await refreshModelCatalogue(region, {
+        apiKey: optionString(opts, "apiKey"),
+        userID: optionString(opts, "userID"),
+        baseUrl: optionString(opts, "baseUrl"),
+        storeName: optionString(opts, "storeName"),
+        providerID: id,
+      });
+    }
     await ctx.catalog.transform((catalog) => {
       catalog.provider.update(id, (provider) => {
         provider.name = name;
