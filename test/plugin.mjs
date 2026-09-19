@@ -162,12 +162,12 @@ for (const [region, want] of Object.entries(EXPECT)) {
   );
   for (const m of models)
     check(m.limit?.context && m.limit.context === m.limit.input, `limit ${m.name}`);
-  const flash = p.models["deepseek-v4-flash"];
-  check(flash?.limit?.context === 1_000_000, "deepseek-v4-flash ctx not 1M");
+  const flash = p.models[want.region === "intl" ? "deepseek-v4.1-flash" : "deepseek-v4-flash"];
+  check(flash?.limit?.context === 1_000_000, "deepseek flash ctx not 1M");
   check(!!flash?.variants?.max?.reasoningEffort, "effort variants missing");
 
   // Each integration point must offer ITS OWN catalogue. This is the guard
-  // against the old single union table, which sold CN users `hy4-preview-f` --
+  // against the old single union table, which sold CN users `gpt-6-astra` --
   // an international id the CN endpoint has never listed.
   const staticIds = new Set(modelTable(want.region).map((m) => m.id));
   check(
@@ -178,8 +178,8 @@ for (const [region, want] of Object.entries(EXPECT)) {
     check(staticIds.has(id), `model ${id} not in the ${want.region} table`);
   check(staticIds.has("hy3"), `${want.region} table lost hy3 (the subagent pin)`);
   check(
-    staticIds.has("hy4-preview-f") === (want.region === "intl"),
-    `hy4-preview-f must be intl-only, seen on ${want.region}`,
+    staticIds.has("gpt-6-astra") === (want.region === "intl"),
+    `gpt-6-astra must be intl-only, seen on ${want.region}`,
   );
 
   // Default config must not clobber a user-set model.

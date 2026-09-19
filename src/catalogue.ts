@@ -28,18 +28,27 @@ import {
 /**
  * The live model catalogue, mirroring the reference clients' `FetchModels`.
  *
- * `GET {base}/console/enterprises/personal/models` answers with the models that
- * credential can actually buy, at the gateway's real token budgets -- the only
- * way the table stays true after WorkBuddy renames or re-tunes a model. The
- * international endpoint is reported to answer 500 even for valid accounts, so
- * this whole module is an optimisation: every path out of it lands on the
- * static table, and a failure NEVER invalidates a credential. The model list is
- * capability discovery, not authentication (see the reference client's note
- * about not feeding a /models failure into the breaker).
+ * International leads with `GET {base}/v3/config` -- the desktop client's own
+ * product config, whose model set and credits are what the gateway actually
+ * bills; `/v2/enterprises/personal/models` is probed behind it (it answers 200
+ * but is stale and narrower) and `/console/...` last. CN leads with
+ * `/console/enterprises/personal/models` and falls back to `/v3/config`. This
+ * module is an optimisation, NOT a dependency: every path out of it lands on
+ * the static table, and a failure NEVER invalidates a credential. The model
+ * list is capability discovery, not authentication (see the reference client's
+ * note about not feeding a /models failure into the breaker).
  */
 
 /** Shorter than the chat timeout: this runs on the plugin's startup path. */
 const CATALOGUE_TIMEOUT_MS = 8_000;
+
+/**
+ * Bump when the parsed-row shape or the source semantics change, so a cache
+ * written by an older build is ignored instead of trusted. v2: the live table
+ * moved to `/v3/config` -- a v1 intl cache was built from `/v2`, whose 18-row
+ * set omits DeepSeek and marks `hy4-preview` free, so it must not be served.
+ */
+export const CACHE_VERSION = 2;
 
 export type CatalogueSource = "fixture" | "cache" | "live" | "static";
 
@@ -103,7 +112,7 @@ function readCache(region: WBRegion): CachedFile | undefined {
   try {
     if (!existsSync(file)) return undefined;
     const parsed = asRecord(JSON.parse(readFileSync(file, "utf8")));
-    if (parsed?.version !== 1) return undefined;
+    if (parsed?.version !== CACHE_VERSION) return undefined;
     return parsed as CachedFile;
   } catch (error) {
     // A missing cache is the normal fresh state; a broken one is worth a trace,
@@ -118,7 +127,7 @@ function readCache(region: WBRegion): CachedFile | undefined {
 function writeCache(region: WBRegion, rows: CatalogueRow[]): void {
   try {
     writeJsonAtomic(cachePath(region), {
-      version: 1,
+      version: CACHE_VERSION,
       fetchedAt: Date.now(),
       models: rows,
     });
@@ -130,7 +139,7 @@ function writeCache(region: WBRegion, rows: CatalogueRow[]): void {
 function writeCacheFailure(region: WBRegion, previous: CachedFile | undefined): void {
   try {
     writeJsonAtomic(cachePath(region), {
-      version: 1,
+      version: CACHE_VERSION,
       fetchedAt: typeof previous?.fetchedAt === "number" ? previous.fetchedAt : 0,
       failedAt: Date.now(),
       models: Array.isArray(previous?.models) ? previous.models : [],

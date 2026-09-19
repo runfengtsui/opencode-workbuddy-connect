@@ -8,7 +8,7 @@
 
 ## 特性
 
-- **真实 1M 上下文** — 所有 1M 档模型都以 `limit.context = limit.input = 1_000_000` 注册，opencode 会在约 1M token 处才触发压缩，而不是默认的 200k 断崖。1M 是这些模型的原生窗口，不需要任何额外线上参数。国际版有 6 个（`deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-v4.1-flash`、`glm-5.2`、`kimi-k3-1`、`hy4-preview-f`），国内版有 10 个（`hy4-preview`、`hy4-preview-x`、`glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`kimi-k3-1`、`kimi-k2.8-preview`、`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-v4-pro`）。
+- **真实 1M 上下文** — 所有 1M 档模型都以 `limit.context = limit.input = 1_000_000` 注册，opencode 会在约 1M token 处才触发压缩，而不是默认的 200k 断崖。1M 是这些模型的原生窗口，不需要任何额外线上参数。国际版有 13 个（`gpt-6-astra`、`gpt-5.6-*`、`gpt-5.5`、`deepseek-v4.1-flash[-sg]`、`hy4-preview`、`kimi-k3`、`kimi-k2.8-preview`、`gemini-3.5-flash`、`glm-5.3`、`glm-5.2`），国内版有 10 个（`hy4-preview`、`hy4-preview-x`、`glm-5.3`、`glm-5.3-flash`、`glm-5.2`、`kimi-k3-1`、`kimi-k2.8-preview`、`deepseek-v4-flash`、`deepseek-v4.1-flash`、`deepseek-v4-pro`）。
 - **实时模型发现** — 插件会去问网关：*你的账号*实际买得到哪些模型、真实 token 预算各是多少，并把结果叠加到内置的区域专属表之上。WorkBuddy 改名、上新或调整上下文窗口后无需更新插件即可生效，且任何发现失败都不可能影响认证。
 - **纯 OpenAI 兼容 SSE** — 直连 `https://www.workbuddy.{ai|cn}/v2/chat/completions`，`reasoning_content` 以原生思考流呈现。
 - **完整 agentic 工具调用** — 并行 tool call、工具参数增量流、`tool` 角色结果回传，均已对真实网关验证。
@@ -118,20 +118,31 @@ opencode auth login   # 选择 "WorkBuddy AI" 或 "WorkBuddy AI (CN)"
 
 每个接入点都有**自己的**模型表，因为两个站点在同一批名字下卖的是不同的目录。
 
-**`workbuddy`（国际版）** — 11 个模型，默认 `hy3`。11 个全部支持流式思考与图片输入：
+**`workbuddy`（国际版）** — 21 个模型，默认 `hy3`。这是桌面客户端自身产品配置（`/v3/config`）所给的表，其 credits 即网关实际计费的费率：
 
 | 模型 | 上下文 | 最大输出 | 思考强度变体 | 备注 |
 |---|---|---|---|---|
-| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max | |
-| `deepseek-v4-pro` | **1,000,000** | 50,000 | low…max | |
-| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low…max | 免费；单次输出封顶 16,384（循环防护） |
-| `glm-5.2` | **1,000,000** | 48,000 | low…max | |
-| `kimi-k3-1` | **1,000,000** | 32,000 | low…max | |
-| `hy4-preview-f` | **1,000,000** | 64,000 | high | 免费；仅国际版 |
-| `minimax-m3` | 512,000 | 128,000 | low…max | |
-| `kimi-k2.7` | 256,000 | 32,000 | low…max | |
-| `kimi-k2.5` | 256,000 | 32,000 | low…max | |
-| `glm-5.1` | 200,000 | 48,000 | low…max | |
+| `gpt-6-astra` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.6-sol` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.6-terra` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.6-luna` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.5` | **1,000,000** | 128,000 | low…xhigh | |
+| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low, high, max | 免费；单次输出封顶 16,384（循环防护） |
+| `deepseek-v4.1-flash-sg` | **1,000,000** | 128,000 | low, high, max | |
+| `hy4-preview` | **1,000,000** | 64,000 | high | **按 x0.29 计费**（并非免费） |
+| `kimi-k3` | **1,000,000** | 32,000 | low…max | |
+| `gemini-3.5-flash` | **1,000,000** | 65,536 | low…max | |
+| `kimi-k2.8-preview` | **1,000,000** | 32,000 | low, high, max | |
+| `glm-5.3` | **1,000,000** | 48,000 | low, high, max | |
+| `glm-5.2` | **1,000,000** | 48,000 | high, xhigh | |
+| `fast-model` | 200,000 | 32,000 | low…max | Auto 档位别名 |
+| `balanced-model` | 256,000 | 32,000 | low…max | Auto 档位别名 |
+| `primary-model` | 272,000 | 72,000 | low…max | Auto 档位别名 |
+| `gpt-5.4` | 272,000 | 72,000 | low…xhigh | |
+| `kimi-k2.6` | 256,000 | 32,000 | low…max | |
+| `hy3` | 192,000 | 64,000 | low, high | 免费 |
+| `deep-model` | 176,000 | 24,000 | — | Auto 档位别名 |
+| `default-model` | 176,000 | 24,000 | — | "Auto" |
 | `hy3` | 192,000 | 64,000 | low, high | 免费 |
 
 **`workbuddy-cn`（国内版）** — 29 个模型，默认 `hy3`。CN 目录是混合的：部分条目既不支持流式思考、也不接受图片输入，能力逐模型不同而非统一。以下为重点条目（完整列表在启动时发布）：
@@ -163,19 +174,19 @@ opencode auth login   # 选择 "WorkBuddy AI" 或 "WorkBuddy AI (CN)"
 网关暴露的正是 WorkBuddy CLI 用的那个接口：
 
 ```
-CN:    GET {baseUrl}/console/enterprises/personal/models
-Intl:  GET {baseUrl}/v2/enterprises/personal/models   （回退 /console）
+CN:    GET {baseUrl}/console/enterprises/personal/models   （回退 /v3/config）
+Intl:  GET {baseUrl}/v3/config                             （回退 /v2，再回退 /console）
 ```
 
-两个接入点并不共用前缀：国际版网关对 `/console/...` 返回 `500`、对 `/v2/...` 返回 `200`，因此按顺序探测，先答应的胜出。单个失效前缀因此不可能让整个区域失去模型发现能力。
+`/v3/config` 是桌面客户端自身的产品配置：官方客户端模型选择器里渲染的就是它，其 credits 即网关实际计费的费率。国际版以它为首选；CN 仍以一直可用的 console 接口为首选，失败时回退到 `/v3/config`。旧的 `/v2/enterprises/personal/models` 对国际版仍返回 `200`，但内容陈旧且更窄（18 个条目、没有 DeepSeek 变体，还把 `hy4-preview` 标成免费而网关实际按 `x0.29` 计费），因此现在只作为回退探测。按顺序探测，先答应的胜出，单个失效前缀因此不可能让整个区域失去模型发现能力。
 
 它返回**你的**凭据实际可用的模型，以及网关侧真实的 token 预算——这是 WorkBuddy 改名或调整上下文窗口之后，模型表还能保持准确的唯一办法。插件在启动时（最多每小时一次）拉取它，把结果按区域写进 `~/.cache/opencode/` 下的磁盘缓存，然后应用：
 
 - **模型 id 以接口为准**：接口不列的模型就不再提供，新出现的就会提供。
-- **数字**（`contextWindow`、`maxOutputTokens`、`credits`）取自网关。比如 `kimi-k2.5` 其实是 164k 而不是 256k，只有这里能知道。
+- **数字**（`contextWindow`、`maxOutputTokens`、`credits`）取自网关。比如 `kimi-k2.5` 其实是 164k 而不是 256k、`hy4-preview` 按 `x0.29` 计费而非免费，只有这里能知道。
 - **思考强度档位**在接口沉默时回落到静态表。接口只给部分模型列 `supportedEfforts`；若像 `hy3`（实际只接受 `low`/`high`）那样凭空补出完整 `low…max` 阶梯，只会换来 `400 invalid effort`。因此"缺省"按**未知**处理，而不是"五档全支持"。
 
-发现环节无论如何都不可能搞坏认证。500、超时、空响应，或小得看起来被截断的响应，都只记一行日志然后忽略，继续提供上一份好表——最坏情况是静态表。失败后退回 60 秒，避免每次启动都去敲一个坏掉的接口。CN 接口已确认实时可用；国际版 `/v2` 路径取自参考网关实现，**本仓库并未用国际版凭据确认过**——万一它不对，探测会落到 `/console`，再不行就是静态表，代价仅是一行警告。
+发现环节无论如何都不可能搞坏认证。500、超时、空响应，或小得看起来被截断的响应，都只记一行日志然后忽略，继续提供上一份好表——最坏情况是静态表。失败后退回 60 秒，避免每次启动都去敲一个坏掉的接口。两类接口都各自用对应区域的凭据确认过实时可用；万一某条路径不对，探测会落到下一条，再不行就是静态表，代价仅是一行警告。
 
 | 环境变量 | 作用 |
 |---|---|
@@ -191,19 +202,19 @@ Intl:  GET {baseUrl}/v2/enterprises/personal/models   （回退 /console）
 选择模型（比如 1M 档）：
 
 ```bash
-opencode run -m workbuddy/deepseek-v4-flash "hello"
+opencode run -m workbuddy/deepseek-v4.1-flash "hello"
 ```
 
 或设为默认：
 
 ```json
-{ "model": "workbuddy/glm-5.2" }
+{ "model": "workbuddy/glm-5.3" }
 ```
 
 **思考强度** — 用模型变体：
 
 ```json
-{ "model": "workbuddy/deepseek-v4-pro", "variant": "max" }
+{ "model": "workbuddy/gpt-6-astra", "variant": "max" }
 ```
 
 **插件 options**（写在插件条目上，或 `provider.workbuddy.options` 下）：

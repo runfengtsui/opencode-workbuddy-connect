@@ -32,6 +32,7 @@ const {
   staticModels,
 } = await import("../dist/models.js");
 const {
+  CACHE_VERSION,
   catalogueCachePath,
   catalogueStatus,
   catalogueURL,
@@ -115,20 +116,29 @@ section("region isolation");
   resetModelTablesForTests();
   const intl = bundledModels("intl").map((m) => m.id);
   const cn = bundledModels("cn").map((m) => m.id);
-  check(intl.includes("hy4-preview-f"), "hy4-preview-f belongs to the international table");
+  check(intl.includes("gpt-6-astra"), "gpt-6-astra belongs to the international table");
   check(
-    !cn.includes("hy4-preview-f"),
-    "hy4-preview-f is absent from the CN table (endpoint never lists it)",
+    !cn.includes("gpt-6-astra"),
+    "gpt-6-astra is absent from the CN table (endpoint never lists it)",
   );
   check(
     cn.includes("glm-5.3") && cn.includes("kimi-k2.6"),
     "CN table carries the models CN actually sells",
   );
   check(
-    getModelDefinition("hy4-preview-f", "cn") === undefined,
+    getModelDefinition("gpt-6-astra", "cn") === undefined,
     "an intl-only id does not resolve on CN",
   );
-  check(!!getModelDefinition("hy4-preview-f", "intl"), "the same id resolves on intl");
+  check(!!getModelDefinition("gpt-6-astra", "intl"), "the same id resolves on intl");
+  check(
+    getModelDefinition("hunyuan-2.0-thinking", "intl") === undefined,
+    "a CN-only id does not resolve on intl",
+  );
+  const hy4 = getModelDefinition("hy4-preview", "intl");
+  check(
+    hy4?.credits === "x0.29",
+    `intl hy4-preview is billed x0.29, not the stale "x0.00" (${hy4?.credits})`,
+  );
   const kimi = getModelDefinition("kimi-k2.5", "cn");
   check(
     kimi?.contextWindow === 164_000,
@@ -196,21 +206,20 @@ section("fallback ladder");
       "https://www.workbuddy.cn/console/enterprises/personal/models",
     "CN discovery hits /console on the credential's own base",
   );
-  // International answers 500 on /console and 200 on /v2, so /v2 must be probed
-  // first -- otherwise that region is stuck on the static table forever.
+  // International leads with /v3/config (the desktop client's own product
+  // config); /v2 is stale and narrower, so it is only a fallback probe.
   check(
-    catalogueURL("https://www.workbuddy.ai", "intl") ===
-      "https://www.workbuddy.ai/v2/enterprises/personal/models",
-    "intl discovery leads with /v2",
+    catalogueURL("https://www.workbuddy.ai", "intl") === "https://www.workbuddy.ai/v3/config",
+    "intl discovery leads with /v3/config",
   );
   check(
     modelCataloguePaths("intl").join(",") ===
-      "/v2/enterprises/personal/models,/console/enterprises/personal/models",
-    "intl falls back to /console after /v2",
+      "/v3/config,/v2/enterprises/personal/models,/console/enterprises/personal/models",
+    "intl falls back to /v2 then /console",
   );
   check(
-    modelCataloguePaths("cn").join(",") === "/console/enterprises/personal/models",
-    "CN does not probe /v2 (verified working on /console, no need)",
+    modelCataloguePaths("cn").join(",") === "/console/enterprises/personal/models,/v3/config",
+    "CN leads with /console and falls back to /v3/config",
   );
 
   // 1. discovery off -> static, nothing read.
@@ -224,7 +233,7 @@ section("fallback ladder");
 
   // 2. fresh cache -> served without touching the network (no creds exist here).
   const rows = parseCataloguePayload(fixture);
-  writeCache(cache, { version: 1, fetchedAt: Date.now(), models: rows });
+  writeCache(cache, { version: CACHE_VERSION, fetchedAt: Date.now(), models: rows });
   resetModelTablesForTests();
   models = await refreshModelCatalogue("cn", {
     providerID: PROVIDER_ID_CN,
@@ -236,7 +245,7 @@ section("fallback ladder");
   );
 
   // 3. stale cache + unreachable endpoint -> the stale rows still beat the bundle.
-  writeCache(cache, { version: 1, fetchedAt: Date.now() - 86_400_000, models: rows });
+  writeCache(cache, { version: CACHE_VERSION, fetchedAt: Date.now() - 86_400_000, models: rows });
   resetModelTablesForTests();
   models = await refreshModelCatalogue("cn", {
     providerID: PROVIDER_ID_CN,
@@ -249,7 +258,7 @@ section("fallback ladder");
 
   // 4. no cache at all, no credentials -> static, and the failure is recorded
   //    against THIS region only.
-  writeCache(cache, { version: 1, fetchedAt: 0, failedAt: 0, models: [] });
+  writeCache(cache, { version: CACHE_VERSION, fetchedAt: 0, failedAt: 0, models: [] });
   resetModelTablesForTests();
   const intlBefore = modelTable("intl").length;
   models = await refreshModelCatalogue("cn", {
@@ -303,7 +312,7 @@ section("cache path override");
   // Writer and reader must agree: a fresh cache at the resolved path is served
   // without touching the network (no credentials exist in this sandbox).
   const rows = parseCataloguePayload(fixture);
-  writeCache(cnInDir, { version: 1, fetchedAt: Date.now(), models: rows });
+  writeCache(cnInDir, { version: CACHE_VERSION, fetchedAt: Date.now(), models: rows });
   const served = await refreshModelCatalogue("cn", {
     providerID: PROVIDER_ID_CN,
     storeName: CN_STORE_NAME,

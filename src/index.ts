@@ -173,7 +173,8 @@ function loginBase(options?: PluginOptions): string {
 // auto-compaction threshold -- for the 1M models BOTH are a million, so a
 // conversation genuinely runs to ~1M tokens before compaction instead of the
 // legacy 200k cliff. WorkBuddy needs no wire parameter for this: 1M is the
-// model's native budget (deepseek-v4-pro/flash, glm-5.2, kimi-k3-1).
+// model's native budget (deepseek-v4.1-flash, hy4-preview, glm-5.x, kimi-k3,
+// gpt-6-astra on international; hy4-preview, glm-5.3, kimi-k3-1 on CN).
 function modelLimit(model: WorkBuddyModelDefinition): {
   context: number;
   input: number;

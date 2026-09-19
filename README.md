@@ -8,7 +8,7 @@ Zero-credential setup if you use the WorkBuddy / CodeBuddy desktop app: the plug
 
 ## Features
 
-- **Real 1M context** — every 1M-tier model is registered with `limit.context = limit.input = 1_000_000`, so opencode compacts at ~1M instead of the 200k default. The 1M window is native to these models; no wire parameter is needed. Six on the international endpoint (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash`, `glm-5.2`, `kimi-k3-1`, `hy4-preview-f`) and ten on CN (`hy4-preview`, `hy4-preview-x`, `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `kimi-k3-1`, `kimi-k2.8-preview`, `deepseek-v4-flash`, `deepseek-v4.1-flash`, `deepseek-v4-pro`).
+- **Real 1M context** — every 1M-tier model is registered with `limit.context = limit.input = 1_000_000`, so opencode compacts at ~1M instead of the 200k default. The 1M window is native to these models; no wire parameter is needed. Thirteen on the international endpoint (`gpt-6-astra`, `gpt-5.6-*`, `gpt-5.5`, `deepseek-v4.1-flash[-sg]`, `hy4-preview`, `kimi-k3`, `kimi-k2.8-preview`, `gemini-3.5-flash`, `glm-5.3`, `glm-5.2`) and ten on CN (`hy4-preview`, `hy4-preview-x`, `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `kimi-k3-1`, `kimi-k2.8-preview`, `deepseek-v4-flash`, `deepseek-v4.1-flash`, `deepseek-v4-pro`).
 - **Live model discovery** — the plugin asks the gateway which models *your* account can actually buy, at its real token budgets, and merges that over a bundled per-region table. Renames, new releases and context-window changes land without a plugin update, and no discovery failure can affect auth.
 - **Pure OpenAI-compatible SSE** against `https://www.workbuddy.{ai|cn}/v2/chat/completions`, with `reasoning_content` streamed as native thinking.
 - **Full agentic tool use** — parallel tool calls, streaming tool-argument deltas, and `tool`-role result replay verified against the live gateway.
@@ -133,21 +133,31 @@ Two methods are offered per integration point:
 
 Each integration point has its **own** model table, because the two sites sell different catalogues under the same names.
 
-**`workbuddy` (international)** — 11 models, default `hy3`. All 11 stream reasoning and accept image input:
+**`workbuddy` (international)** — 21 models, default `hy3`. This is the table served by the desktop client's own product config (`/v3/config`), and the credits are the rates the gateway actually bills:
 
 | Model | Context | Max output | Effort variants | Notes |
 |---|---|---|---|---|
-| `deepseek-v4-flash` | **1,000,000** | 50,000 | low…max | |
-| `deepseek-v4-pro` | **1,000,000** | 50,000 | low…max | |
-| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low…max | free; output capped to 16,384 (loop guard) |
-| `glm-5.2` | **1,000,000** | 48,000 | low…max | |
-| `kimi-k3-1` | **1,000,000** | 32,000 | low…max | |
-| `hy4-preview-f` | **1,000,000** | 64,000 | high | free; international only |
-| `minimax-m3` | 512,000 | 128,000 | low…max | |
-| `kimi-k2.7` | 256,000 | 32,000 | low…max | |
-| `kimi-k2.5` | 256,000 | 32,000 | low…max | |
-| `glm-5.1` | 200,000 | 48,000 | low…max | |
+| `gpt-6-astra` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.6-sol` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.6-terra` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.6-luna` | **1,000,000** | 128,000 | low…max | |
+| `gpt-5.5` | **1,000,000** | 128,000 | low…xhigh | |
+| `deepseek-v4.1-flash` | **1,000,000** | 128,000 | low, high, max | free; output capped to 16,384 (loop guard) |
+| `deepseek-v4.1-flash-sg` | **1,000,000** | 128,000 | low, high, max | |
+| `hy4-preview` | **1,000,000** | 64,000 | high | **billed x0.29** (not free) |
+| `kimi-k3` | **1,000,000** | 32,000 | low…max | |
+| `gemini-3.5-flash` | **1,000,000** | 65,536 | low…max | |
+| `kimi-k2.8-preview` | **1,000,000** | 32,000 | low, high, max | |
+| `glm-5.3` | **1,000,000** | 48,000 | low, high, max | |
+| `glm-5.2` | **1,000,000** | 48,000 | high, xhigh | |
+| `fast-model` | 200,000 | 32,000 | low…max | Auto-tier alias |
+| `balanced-model` | 256,000 | 32,000 | low…max | Auto-tier alias |
+| `primary-model` | 272,000 | 72,000 | low…max | Auto-tier alias |
+| `gpt-5.4` | 272,000 | 72,000 | low…xhigh | |
+| `kimi-k2.6` | 256,000 | 32,000 | low…max | |
 | `hy3` | 192,000 | 64,000 | low, high | free |
+| `deep-model` | 176,000 | 24,000 | — | Auto-tier alias |
+| `default-model` | 176,000 | 24,000 | — | "Auto" |
 
 **`workbuddy-cn` (CN)** — 29 models, default `hy3`. The CN catalogue is mixed: some entries neither stream reasoning nor take images, so capability varies per model rather than being uniform. Notable entries (full list is published at startup):
 
@@ -178,19 +188,19 @@ These are the *statically bundled* tables. The plugin also queries the live cata
 The gateway exposes the same endpoint the WorkBuddy CLI uses:
 
 ```
-CN:    GET {baseUrl}/console/enterprises/personal/models
-Intl:  GET {baseUrl}/v2/enterprises/personal/models   (falls back to /console)
+CN:    GET {baseUrl}/console/enterprises/personal/models   (falls back to /v3/config)
+Intl:  GET {baseUrl}/v3/config                             (falls back to /v2, then /console)
 ```
 
-The two integration points do not share a prefix: the international gateway answers `500` on `/console/...` and `200` on `/v2/...`, so the paths are probed in order and the first that answers wins. A dead prefix therefore cannot disable discovery for a region.
+`/v3/config` is the desktop client's own product config: it is what the official clients render in their model pickers, and the credits it carries are the rates the gateway actually bills. International leads with it; CN leads with the console endpoint it has always answered on, and falls back to `/v3/config`. The legacy `/v2/enterprises/personal/models` path still answers `200` for international, but it is stale and narrower (18 entries, no DeepSeek variants, and it advertises `hy4-preview` as free when the gateway bills `x0.29`), so it is now only a fallback probe. Paths are probed in order and the first that answers wins, so a dead prefix cannot disable discovery for a region.
 
 It returns the models *your* credential is allowed to use, at the gateway's true token budgets — the only way the table stays accurate after WorkBuddy renames a model or moves its context window. On startup (and at most once per hour) the plugin fetches it, writes a per-region disk cache under `~/.cache/opencode/`, and applies the result:
 
 - **ids** are authoritative: a model the endpoint omits stops being offered, a new one starts.
-- **numbers** (`contextWindow`, `maxOutputTokens`, `credits`) come from the gateway. The endpoint is the only place the plugin learns that e.g. `kimi-k2.5` is 164k, not 256k.
+- **numbers** (`contextWindow`, `maxOutputTokens`, `credits`) come from the gateway. The endpoint is the only place the plugin learns that e.g. `kimi-k2.5` is 164k, not 256k, or that `hy4-preview` is billed `x0.29` rather than free.
 - **effort ladders** fall back to the static table where the endpoint is silent. The endpoint only lists `supportedEfforts` for some models; inventing the full `low…max` ladder for a model like `hy3` (which really only accepts `low`/`high`) would produce `400 invalid effort` responses, so "absent" is treated as *unknown*, not as "all five".
 
-Nothing about discovery can break auth. A 500, a timeout, an empty response, or a response so small it looks truncated is logged and ignored, and the last good table is served — worst case the static table. Failures back off for 60 s so a broken endpoint isn't hammered on every startup. The CN endpoint is confirmed answering live; the international `/v2` path is taken from the reference gateway implementations and is *not* confirmed against an international credential here — if it is ever wrong, the probe falls through to `/console` and then to the static table, which costs a warning line and nothing else.
+Nothing about discovery can break auth. A 500, a timeout, an empty response, or a response so small it looks truncated is logged and ignored, and the last good table is served — worst case the static table. Failures back off for 60 s so a broken endpoint isn't hammered on every startup. Both endpoint families are confirmed answering live with their own credentials; if a path is ever wrong, the probe falls through to the next one and then to the static table, which costs a warning line and nothing else.
 
 | Variable | Effect |
 |---|---|
@@ -206,19 +216,19 @@ To see what a region resolved to, check opencode's log for `catalogue[<region>]:
 Pick a model (e.g. the 1M one):
 
 ```bash
-opencode run -m workbuddy/deepseek-v4-flash "hello"
+opencode run -m workbuddy/deepseek-v4.1-flash "hello"
 ```
 
 or set it as the default:
 
 ```json
-{ "model": "workbuddy/glm-5.2" }
+{ "model": "workbuddy/glm-5.3" }
 ```
 
 **Reasoning effort** — use the model variant:
 
 ```json
-{ "model": "workbuddy/deepseek-v4-pro", "variant": "max" }
+{ "model": "workbuddy/gpt-6-astra", "variant": "max" }
 ```
 
 **Plugin options** (on the plugin entry, or under `provider.workbuddy.options`):

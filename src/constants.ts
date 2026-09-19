@@ -50,20 +50,27 @@ export const PRODUCT_CONFIG_FILE = ["cache", "acc-product-config-v3.json"] as co
 export const MODEL_CATALOGUE_PATH = "/console/enterprises/personal/models";
 
 /**
- * The international model-list path. Reference gateway implementations report
- * that `/console/...` answers 500 for international accounts while `/v2/...`
- * answers 200; that is second-hand and not confirmed against an international
- * credential from this repo. It is therefore *probed* first with
- * `/console/...` behind it, so being wrong costs a warning line, and being
- * right is the only way that region gets live discovery at all.
+ * The desktop client's own product config. This is the list the official
+ * clients render in their model pickers, and the credits it carries are the
+ * rates the gateway actually bills -- verified live against BOTH regions
+ * (2026-09). It is the primary source for international and a fallback for CN.
+ */
+export const MODEL_CATALOGUE_PATH_V3 = "/v3/config";
+
+/**
+ * Legacy international model-list path. Reference gateway implementations
+ * report `/v2/...` answers 200, and it does -- but its model set is stale and
+ * narrower (18 entries, no DeepSeek variants, and credits that go out of date:
+ * it advertises `hy4-preview` as `x0.00` while `/v3/config` and the gateway
+ * bill `x0.29`). Kept only as a fallback probe before the static table.
  */
 export const MODEL_CATALOGUE_PATH_INTL = "/v2/enterprises/personal/models";
 
 /** Candidate catalogue paths per region, in probe order. */
 export function modelCataloguePaths(region: WBRegion): readonly string[] {
   return region === "intl"
-    ? ([MODEL_CATALOGUE_PATH_INTL, MODEL_CATALOGUE_PATH] as const)
-    : [MODEL_CATALOGUE_PATH];
+    ? ([MODEL_CATALOGUE_PATH_V3, MODEL_CATALOGUE_PATH_INTL, MODEL_CATALOGUE_PATH] as const)
+    : ([MODEL_CATALOGUE_PATH, MODEL_CATALOGUE_PATH_V3] as const);
 }
 
 // --- billing (quota + daily check-in) ---------------------------------------

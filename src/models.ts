@@ -14,21 +14,22 @@ import { logPlugin } from "./log.js";
 // Model tables for WorkBuddy AI, one per integration point.
 //
 // Resolution order, freshest wins:
-//   1. the live console catalogue (catalogue.ts -- CN answers it; the
-//      international endpoint is known to answer 500 for some accounts)
+//   1. the live catalogue (catalogue.ts -- both regions answer `/v3/config`,
+//      the desktop client's own product config; CN leads with `/console`)
 //   2. the desktop app's product config cache (per-region path, below)
 //   3. the bundled table for THAT REGION
 //
-// (3) is region-split on purpose. The old single table was the union of both
-// catalogues, which is how `hy4-preview-f` -- an international id -- ended up
-// registered against CN, where no such model exists. An id the integration
-// point does not list is not a model that account can buy, so guessing the
-// union hands users a request-time error instead of an honest absence.
+// (3) is the OFFLINE FLOOR, not the source of truth: it is only reached when
+// discovery is disabled, fails, and there is no usable cache. Both tables below
+// were transcribed from a live GET -- CN from `/console/enterprises/personal/
+// models`, international from `/v3/config`, verified 2026-09.
 //
-// The CN table below was transcribed from a live `GET /console/enterprises/
-// personal/models` response; the international one is the pre-existing bundled
-// table (its endpoint could not be verified from a CN credential, and
-// cross-region requests are refused by design -- see auth.ts).
+// (1) and (3) are region-split on purpose. The old single table was the union
+// of both catalogues, which is how `hy4-preview-f` -- an international id --
+// ended up registered against CN, where no such model exists. An id the
+// integration point does not list is not a model that account can buy, so
+// guessing the union hands users a request-time error instead of an honest
+// absence. Cross-region requests are refused by design -- see auth.ts.
 //
 // Context windows are the real gateway budgets. The 1M models accept a million
 // input tokens WITHOUT any wire parameter -- 1M is a property of the model, not
@@ -69,46 +70,55 @@ export function isFreeModel(model: WorkBuddyModelDefinition): boolean {
 const BUNDLED_INTL_MODELS: WorkBuddyModelDefinition[] = [
   // --- 1M context tier -----------------------------------------------------
   {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek-V4-Flash",
+    id: "gpt-6-astra",
+    name: "GPT-6-Astra",
     reasoning: true,
     efforts: [...DEFAULT_EFFORTS],
     input: ["text", "image"],
     contextWindow: 1_000_000,
-    maxTokens: 50_000,
-    credits: "x0.06",
+    maxTokens: 128_000,
+    credits: "x6.67",
   },
   {
-    id: "deepseek-v4-pro",
-    name: "DeepSeek-V4-Pro",
+    id: "gpt-5.6-sol",
+    name: "GPT-5.6-Sol",
     reasoning: true,
     efforts: [...DEFAULT_EFFORTS],
     input: ["text", "image"],
     contextWindow: 1_000_000,
-    maxTokens: 50_000,
-    credits: "x0.16",
+    maxTokens: 128_000,
+    credits: "x3.47",
   },
   {
-    id: "glm-5.2",
-    name: "GLM-5.2",
+    id: "gpt-5.6-terra",
+    name: "GPT-5.6-Terra",
     reasoning: true,
     efforts: [...DEFAULT_EFFORTS],
     input: ["text", "image"],
     contextWindow: 1_000_000,
-    maxTokens: 48_000,
-    credits: "x0.79",
+    maxTokens: 128_000,
+    credits: "x1.39",
   },
   {
-    id: "kimi-k3-1",
-    name: "Kimi-K3",
+    id: "gpt-5.6-luna",
+    name: "GPT-5.6-Luna",
     reasoning: true,
     efforts: [...DEFAULT_EFFORTS],
     input: ["text", "image"],
     contextWindow: 1_000_000,
-    maxTokens: 32_000,
-    credits: "x1.62",
+    maxTokens: 128_000,
+    credits: "x0.14",
   },
-  // --- international builtins (pi-workbuddy-connect parity) ----------------
+  {
+    id: "gpt-5.5",
+    name: "GPT-5.5",
+    reasoning: true,
+    efforts: ["low", "medium", "high", "xhigh"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    credits: "x3.31",
+  },
   {
     id: "deepseek-v4.1-flash",
     name: "Deepseek-V4.1-Flash",
@@ -120,16 +130,126 @@ const BUNDLED_INTL_MODELS: WorkBuddyModelDefinition[] = [
     credits: "x0.00",
   },
   {
-    id: "hy4-preview-f",
-    name: "Hy4 Preview",
+    id: "deepseek-v4.1-flash-sg",
+    name: "Deepseek-V4.1-Flash",
+    reasoning: true,
+    efforts: ["low", "high", "max"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    credits: "x0.03",
+  },
+  {
+    id: "hy4-preview",
+    name: "Hy4 preview",
     reasoning: true,
     efforts: ["high"],
     input: ["text", "image"],
     contextWindow: 1_000_000,
     maxTokens: 64_000,
-    credits: "x0.00",
+    credits: "x0.29",
+  },
+  {
+    id: "kimi-k3",
+    name: "Kimi-K3",
+    reasoning: true,
+    efforts: [...DEFAULT_EFFORTS],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 32_000,
+    credits: "x1.62",
+  },
+  {
+    id: "gemini-3.5-flash",
+    name: "Gemini-3.5-Flash",
+    reasoning: true,
+    efforts: [...DEFAULT_EFFORTS],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 65_536,
+    credits: "x0.99",
+  },
+  {
+    id: "kimi-k2.8-preview",
+    name: "Kimi-K2.8-Preview",
+    reasoning: true,
+    efforts: ["low", "high", "max"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 32_000,
+    credits: "x0.77",
+  },
+  {
+    id: "glm-5.3",
+    name: "GLM-5.3",
+    reasoning: true,
+    efforts: ["low", "high", "max"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 48_000,
+    credits: "x0.79",
+  },
+  {
+    id: "glm-5.2",
+    name: "GLM-5.2",
+    reasoning: true,
+    efforts: ["high", "xhigh"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 48_000,
+    credits: "x0.79",
   },
   // --- smaller windows -----------------------------------------------------
+  {
+    id: "fast-model",
+    name: "Fast",
+    reasoning: true,
+    efforts: [...DEFAULT_EFFORTS],
+    input: ["text", "image"],
+    contextWindow: 200_000,
+    maxTokens: 32_000,
+    credits: "x0.34",
+  },
+  {
+    id: "balanced-model",
+    name: "Balanced",
+    reasoning: true,
+    efforts: [...DEFAULT_EFFORTS],
+    input: ["text", "image"],
+    contextWindow: 256_000,
+    maxTokens: 32_000,
+    credits: "x0.59",
+  },
+  {
+    id: "primary-model",
+    name: "Primary",
+    reasoning: true,
+    efforts: [...DEFAULT_EFFORTS],
+    input: ["text", "image"],
+    contextWindow: 272_000,
+    maxTokens: 72_000,
+    credits: "x3.31",
+  },
+  {
+    id: "gpt-5.4",
+    name: "GPT-5.4",
+    reasoning: true,
+    efforts: ["low", "medium", "high", "xhigh"],
+    input: ["text", "image"],
+    contextWindow: 272_000,
+    maxTokens: 72_000,
+    credits: "x1.65",
+  },
+  {
+    id: "kimi-k2.6",
+    name: "Kimi-K2.6",
+    reasoning: true,
+    efforts: [...DEFAULT_EFFORTS],
+    input: ["text", "image"],
+    contextWindow: 256_000,
+    maxTokens: 32_000,
+    credits: "x0.52",
+  },
   {
     id: "hy3",
     name: "Hy3",
@@ -141,42 +261,23 @@ const BUNDLED_INTL_MODELS: WorkBuddyModelDefinition[] = [
     credits: "x0.00",
   },
   {
-    id: "minimax-m3",
-    name: "MiniMax-M3",
-    reasoning: true,
-    efforts: [...DEFAULT_EFFORTS],
+    id: "deep-model",
+    name: "Deep",
+    reasoning: false,
+    efforts: [],
     input: ["text", "image"],
-    contextWindow: 512_000,
-    maxTokens: 128_000,
-    credits: "x0.25",
+    contextWindow: 176_000,
+    maxTokens: 24_000,
+    credits: "x3.33",
   },
   {
-    id: "kimi-k2.7",
-    name: "Kimi-K2.7",
-    reasoning: true,
-    efforts: [...DEFAULT_EFFORTS],
+    id: "default-model",
+    name: "Auto",
+    reasoning: false,
+    efforts: [],
     input: ["text", "image"],
-    contextWindow: 256_000,
-    maxTokens: 32_000,
-    credits: "x0.57",
-  },
-  {
-    id: "kimi-k2.5",
-    name: "Kimi-K2.5",
-    reasoning: true,
-    efforts: [...DEFAULT_EFFORTS],
-    input: ["text", "image"],
-    contextWindow: 256_000,
-    maxTokens: 32_000,
-  },
-  {
-    id: "glm-5.1",
-    name: "GLM-5.1",
-    reasoning: true,
-    efforts: [...DEFAULT_EFFORTS],
-    input: ["text", "image"],
-    contextWindow: 200_000,
-    maxTokens: 48_000,
+    contextWindow: 176_000,
+    maxTokens: 24_000,
   },
 ];
 
