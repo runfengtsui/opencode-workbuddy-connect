@@ -31,6 +31,17 @@ import { logPlugin } from "./log.js";
 // guessing the union hands users a request-time error instead of an honest
 // absence. Cross-region requests are refused by design -- see auth.ts.
 //
+// NOTE on "限免" (limited-time free) model aliases: the desktop client's
+// productFeaturesConfig contains a ModelTrialBanner entry that maps
+// `hy4-preview-f` -> `hy4-preview` with a 14-day trial. This is a CLIENT-SIDE
+// ONLY construct: the gateway has no knowledge of `hy4-preview-f`. When a user
+// selects the "free" alias, the client actually sends `hy4-preview` to the
+// gateway, which bills at the standard rate (x0.29). The "限免" banner is pure
+// UI polish tracked locally via `firstUseTimeKey`; it does NOT zero out the
+// gateway's credit deduction. This is why the old bundled table's x0.00 entry
+// for `hy4-preview-f` was wrong -- the model was never free at the billing
+// layer.
+//
 // Context windows are the real gateway budgets. The 1M models accept a million
 // input tokens WITHOUT any wire parameter -- 1M is a property of the model, not
 // a mode. The plugin's job is to register the number honestly so opencode's
