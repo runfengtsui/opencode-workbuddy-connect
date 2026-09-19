@@ -358,6 +358,20 @@ const BUNDLED_CN_MODELS: WorkBuddyModelDefinition[] = [
     maxTokens: 64_000,
     credits: "x0.29",
   },
+  // Hidden model: CN gateway accepts hy4-preview-f and charges 0 credits
+  // (verified 2026-09), but /v3/config does not list it. Preserved via the
+  // hidden flag so live catalogue replacement does not drop it.
+  {
+    id: "hy4-preview-f",
+    name: "Hy4 preview (free)",
+    reasoning: true,
+    efforts: ["high"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+    credits: "x0.00",
+    hidden: true,
+  },
   {
     id: "default",
     name: "Default",
@@ -799,10 +813,13 @@ export function applyCatalogue(region: WBRegion, rows: CatalogueRow[]): WorkBudd
       table.push(staticModel);
     }
   }
-  if (table.length < MIN_PLAUSIBLE_CATALOGUE) {
+  // Gate on live rows only: hidden models are static fallback, not evidence of
+  // a plausible catalogue. A 2-row transport noise response must not pass just
+  // because hidden models pad the count.
+  if (rows.length < MIN_PLAUSIBLE_CATALOGUE) {
     const current = LIVE_TABLES.get(region) ?? staticModels(region);
     logPlugin(
-      `models[${region}]: catalogue listed ${table.length} usable models -- implausible, keeping ${current.length}`,
+      `models[${region}]: catalogue listed ${rows.length} usable rows -- implausible, keeping ${current.length}`,
     );
     // Return what is already installed. Replacing the live table with the
     // static one here would make the caller register a different set of models

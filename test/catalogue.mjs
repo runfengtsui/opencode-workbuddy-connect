@@ -152,7 +152,11 @@ section("merge rules");
   resetModelTablesForTests();
   const rows = parseCataloguePayload(fixture);
   const table = applyCatalogue("cn", rows);
-  check(table.length === rows.length, `catalogue is authoritative for ids (${table.length})`);
+  const hiddenCount = table.filter((m) => m.hidden).length;
+  check(
+    table.length === rows.length + hiddenCount,
+    `catalogue is authoritative for ids (${table.length} = ${rows.length} live + ${hiddenCount} hidden)`,
+  );
   check(!table.some((m) => m.id === "kimi-k2.5"), "an id the catalogue omits stops being offered");
   check(
     table.some((m) => m.id === "brand-new-model"),
@@ -189,7 +193,7 @@ section("merge rules");
     "the rejection did not fork registration away from id lookup",
   );
   check(
-    applyCatalogue("cn", rows).length === rows.length,
+    applyCatalogue("cn", rows).length === rows.length + hiddenCount,
     "a plausible catalogue is adopted again after the rejection",
   );
 
