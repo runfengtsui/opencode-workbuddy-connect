@@ -192,6 +192,26 @@ section("merge rules");
     applyCatalogue("cn", rows).length === rows.length,
     "a plausible catalogue is adopted again after the rejection",
   );
+
+  // Hidden models from the static table survive live catalogue replacement.
+  resetModelTablesForTests();
+  const intlRows = parseCataloguePayload(fixture).filter((r) => r.model.id !== "hy4-preview-f");
+  const intlTable = applyCatalogue("intl", intlRows);
+  check(
+    intlTable.some((m) => m.id === "hy4-preview-f" && m.hidden),
+    "hy4-preview-f is preserved via the hidden flag when the live catalogue omits it",
+  );
+  check(
+    intlTable.filter((m) => m.id === "hy4-preview-f").length === 1,
+    "hidden model appears exactly once (no duplicates)",
+  );
+  // But if the live catalogue DOES include it, the hidden flag is not duplicated.
+  const withF = [...intlRows, { model: getModelDefinition("hy4-preview-f", "intl"), effortsAdvertised: true }];
+  const intlTableWithF = applyCatalogue("intl", withF);
+  check(
+    intlTableWithF.filter((m) => m.id === "hy4-preview-f").length === 1,
+    "no duplicate when the live catalogue also includes the hidden id",
+  );
 }
 
 // ---------------------------------------------------------------------------

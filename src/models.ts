@@ -33,14 +33,14 @@ import { logPlugin } from "./log.js";
 //
 // NOTE on "限免" (limited-time free) model aliases: the desktop client's
 // productFeaturesConfig contains a ModelTrialBanner entry that maps
-// `hy4-preview-f` -> `hy4-preview` with a 14-day trial. This is a CLIENT-SIDE
-// ONLY construct: the gateway has no knowledge of `hy4-preview-f`. When a user
-// selects the "free" alias, the client actually sends `hy4-preview` to the
-// gateway, which bills at the standard rate (x0.29). The "限免" banner is pure
-// UI polish tracked locally via `firstUseTimeKey`; it does NOT zero out the
-// gateway's credit deduction. This is why the old bundled table's x0.00 entry
-// for `hy4-preview-f` was wrong -- the model was never free at the billing
-// layer.
+// `hy4-preview-f` -> `hy4-preview` with a 14-day trial. However, gateway-level
+// testing (CN region, 2026-09) confirmed that `hy4-preview-f` IS genuinely free
+// at the billing layer: identical 300-token requests charge 0.09 credit for
+// `hy4-preview` but 0 credit for `hy4-preview-f`. The `/v3/config` endpoint does
+// not list it, but the gateway accepts it as a valid model id. It is registered
+// in the bundled table with `hidden: true` so it survives live catalogue
+// replacement. The `ModelTrialBanner` is purely UI polish tracked locally via
+// `firstUseTimeKey`.
 //
 // Context windows are the real gateway budgets. The 1M models accept a million
 // input tokens WITHOUT any wire parameter -- 1M is a property of the model, not
@@ -58,6 +58,13 @@ export type WorkBuddyModelDefinition = {
   maxTokens: number;
   /** Credit multiplier as billed, normalised to "x0.00" / "x0.16" for display. */
   credits?: string;
+  /**
+   * Hidden models exist on the gateway but are not listed by any discovery
+   * endpoint. They survive live catalogue replacement so they remain available
+   * even when the official model list omits them. Use sparingly: the live
+   * catalogue IS authoritative for everything else.
+   */
+  hidden?: boolean;
 };
 
 /** Upstream sends two shapes for the same value: "x0.79" and "x0.79 credits". */
@@ -159,6 +166,22 @@ const BUNDLED_INTL_MODELS: WorkBuddyModelDefinition[] = [
     contextWindow: 1_000_000,
     maxTokens: 64_000,
     credits: "x0.29",
+  },
+  // Hidden model: not listed by /v3/config, but the gateway accepts it and
+  // bills 0 credits (CN-verified 2026-09). The desktop client's
+  // ModelTrialBanner maps it to hy4-preview for UI, but the actual API id
+  // is hy4-preview-f. Preserved via the `hidden` flag so live catalogue
+  // replacement does not drop it.
+  {
+    id: "hy4-preview-f",
+    name: "Hy4 preview (free)",
+    reasoning: true,
+    efforts: ["high"],
+    input: ["text", "image"],
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+    credits: "x0.00",
+    hidden: true,
   },
   {
     id: "kimi-k3",
@@ -327,16 +350,6 @@ const BUNDLED_CN_MODELS: WorkBuddyModelDefinition[] = [
   },
   {
     id: "hy4-preview",
-    name: "Hy4 preview",
-    reasoning: true,
-    efforts: ["high"],
-    input: ["text", "image"],
-    contextWindow: 1_000_000,
-    maxTokens: 64_000,
-    credits: "x0.29",
-  },
-  {
-    id: "hy4-preview-x",
     name: "Hy4 preview",
     reasoning: true,
     efforts: ["high"],
@@ -764,6 +777,10 @@ const MIN_PLAUSIBLE_CATALOGUE = 3;
  * it -- so an id it omits stops being offered. Not authoritative for the effort
  * ladder: where upstream stayed quiet, the static table's ladder (taken from
  * the desktop client) is kept, because "absent" means unknown.
+ *
+ * Hidden models (e.g. hy4-preview-f) from the static table are appended if the
+ * live catalogue does not include them. This keeps gateway-only free models
+ * available even though no discovery endpoint lists them.
  */
 export function applyCatalogue(region: WBRegion, rows: CatalogueRow[]): WorkBuddyModelDefinition[] {
   const staticById = new Map(staticModels(region).map((model) => [model.id, model]));
@@ -774,6 +791,14 @@ export function applyCatalogue(region: WBRegion, rows: CatalogueRow[]): WorkBudd
       return { ...row.model, efforts: previous.efforts };
     })
     .filter((model) => model.contextWindow > 0 && model.maxTokens > 0);
+
+  // Preserve hidden models the live catalogue did not list.
+  const liveIds = new Set(table.map((m) => m.id));
+  for (const staticModel of staticById.values()) {
+    if (staticModel.hidden && !liveIds.has(staticModel.id)) {
+      table.push(staticModel);
+    }
+  }
   if (table.length < MIN_PLAUSIBLE_CATALOGUE) {
     const current = LIVE_TABLES.get(region) ?? staticModels(region);
     logPlugin(
