@@ -36,11 +36,11 @@
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
     "@biomejs/biome": "^2.5.13",
-    "@opencode-ai/plugin": "1.17.13",
+    "@opencode/plugin": "2.3.2",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.2"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.17.0"
+    "@opencode/plugin": ">=2.3.0"
   }
 }

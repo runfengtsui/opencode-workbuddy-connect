@@ -21,28 +21,39 @@ Zero-credential setup if you use the WorkBuddy / CodeBuddy desktop app: the plug
 
 ## Requirements
 
-- opencode with the v2 plugin API (tested on 1.18.30)
+- opencode 2.x
 - Node.js ≥ 20 (global `fetch`)
-- A WorkBuddy account: either the desktop app logged in on this machine, or a token you can paste
+- A WorkBuddy account: browser login, an env-var token, or a desktop app logged in on this machine
 
 ## Install
 
 ```bash
-git clone <this-repo> F:/code/opencode-workbuddy-connect
-cd F:/code/opencode-workbuddy-connect
+git clone <this-repo> /path/to/opencode-workbuddy-connect
+cd /path/to/opencode-workbuddy-connect
 npm install
 npm run build
 ```
 
-Register the plugin in `~/.config/opencode/opencode.json`:
+Register the plugin in `~/.config/opencode/opencode.jsonc` using the v2 form. Example for the CN endpoint only:
 
-```json
+```jsonc
 {
-  "plugin": ["F:/code/opencode-workbuddy-connect"]
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    {
+      "package": "/path/to/opencode-workbuddy-connect",
+      "options": {
+        "providerID": "workbuddy-cn",
+        "providerName": "WorkBuddy AI (CN)",
+        "baseUrl": "https://www.workbuddy.cn",
+        "storeName": "workbuddy-cn-auth.json"
+      }
+    }
+  ]
 }
 ```
 
-The plugin registers itself as provider `workbuddy` and publishes all models automatically.
+Omit `options` for the international provider (defaults to `workbuddy`); add a second `workbuddy-cn` entry for both (see integration points below). Then run `opencode auth login` for browser login; the plugin publishes all models under the chosen provider.
 
 ## Integration points
 

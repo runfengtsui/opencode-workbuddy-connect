@@ -21,28 +21,39 @@
 
 ## 环境要求
 
-- 支持 v2 插件 API 的 opencode（实测 1.18.30）
+- opencode 2.x
 - Node.js ≥ 20（依赖全局 `fetch`）
-- 一个 WorkBuddy 账号：本机桌面端已登录，或有可粘贴的 token
+- 一个 WorkBuddy 账号：浏览器登录、环境变量 token，或本机桌面端已登录
 
 ## 安装
 
 ```bash
-git clone <本仓库> F:/code/opencode-workbuddy-connect
-cd F:/code/opencode-workbuddy-connect
+git clone <本仓库> /path/to/opencode-workbuddy-connect
+cd /path/to/opencode-workbuddy-connect
 npm install
 npm run build
 ```
 
-在 `~/.config/opencode/opencode.json` 注册插件：
+在 `~/.config/opencode/opencode.jsonc` 注册插件。以下为只启用国内版的示例：
 
-```json
+```jsonc
 {
-  "plugin": ["F:/code/opencode-workbuddy-connect"]
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    {
+      "package": "/path/to/opencode-workbuddy-connect",
+      "options": {
+        "providerID": "workbuddy-cn",
+        "providerName": "WorkBuddy AI (CN)",
+        "baseUrl": "https://www.workbuddy.cn",
+        "storeName": "workbuddy-cn-auth.json"
+      }
+    }
+  ]
 }
 ```
 
-插件会以 `workbuddy` 为 provider 自动注册全部模型。
+只用国际版则省略 `options`（provider 默认为 `workbuddy`）；两个都要时再追加一条 `workbuddy-cn` 条目（见下文接入点说明）。然后用 `opencode auth login` 做浏览器登录，插件即以所选 provider 注册全部模型。
 
 ## 两个接入点
 
