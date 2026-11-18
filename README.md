@@ -31,7 +31,7 @@ Install from GitHub with OpenCode. The plugin loads its TypeScript source
 directly, so there is no local build step:
 
 ```bash
-opencode plugin add github:runfengtsui/opencode-workbuddy-connect#v0.1.0
+opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
 ```
 
 Or register the package in `~/.config/opencode/opencode.jsonc` using the v2
@@ -41,9 +41,9 @@ form. Example that enables both endpoints (see integration points below):
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
         "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
-    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
         "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
         "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
   ]
@@ -51,8 +51,21 @@ form. Example that enables both endpoints (see integration points below):
 ```
 
 Pin a tag (as above) or a full commit for reproducible installs; drop the
-`#v0.1.0` suffix to track the default branch. Then run `opencode auth login`
-for browser login; the plugin publishes all models under the chosen providers.
+`#v0.1.1` suffix to track the default branch. Use the explicit `git+https://`
+form rather than the `github:` shorthand: the latter defaults to SSH and fails
+without a GitHub SSH key. If `opencode plugin add` is unavailable or broken in
+your OpenCode build, clone the repo and register the local path instead:
+
+```bash
+git clone https://github.com/runfengtsui/opencode-workbuddy-connect.git
+```
+
+```jsonc
+{ "plugins": [{ "package": "/path/to/opencode-workbuddy-connect", "options": { "region": "cn" } }] }
+```
+
+Then run `opencode auth login` for browser login; the plugin publishes all
+models under the chosen providers.
 
 ## Integration points
 

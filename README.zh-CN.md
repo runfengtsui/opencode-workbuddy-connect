@@ -30,7 +30,7 @@
 用 OpenCode 从 GitHub 安装。插件直接加载 TypeScript 源码，无需本地构建：
 
 ```bash
-opencode plugin add github:runfengtsui/opencode-workbuddy-connect#v0.1.0
+opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
 ```
 
 或者在 `~/.config/opencode/opencode.jsonc` 中注册包（v2 写法）。以下为同时启用两个接入点的示例（见下文接入点说明）：
@@ -39,16 +39,26 @@ opencode plugin add github:runfengtsui/opencode-workbuddy-connect#v0.1.0
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
         "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
-    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
         "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
         "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
   ]
 }
 ```
 
-建议固定一个 tag（如上）或完整 commit 以便复现；去掉 `#v0.1.0` 后缀则跟随默认分支。然后用 `opencode auth login` 做浏览器登录，插件即以所选 provider 注册全部模型。
+建议固定一个 tag（如上）或完整 commit 以便复现；去掉 `#v0.1.1` 后缀则跟随默认分支。请用显式的 `git+https://` 形式，不要用 `github:` 简写——后者默认走 SSH，没有 GitHub SSH key 时会失败。如果你的 OpenCode 版本里 `opencode plugin add` 不可用或出错，可以手动克隆仓库并用本地路径注册：
+
+```bash
+git clone https://github.com/runfengtsui/opencode-workbuddy-connect.git
+```
+
+```jsonc
+{ "plugins": [{ "package": "/path/to/opencode-workbuddy-connect", "options": { "region": "cn" } }] }
+```
+
+然后用 `opencode auth login` 做浏览器登录，插件即以所选 provider 注册全部模型。
 
 ## 两个接入点
 
