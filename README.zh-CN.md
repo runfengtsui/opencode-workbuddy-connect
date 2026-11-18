@@ -27,33 +27,28 @@
 
 ## 安装
 
+用 OpenCode 从 GitHub 安装。插件直接加载 TypeScript 源码，无需本地构建：
+
 ```bash
-git clone <本仓库> /path/to/opencode-workbuddy-connect
-cd /path/to/opencode-workbuddy-connect
-npm install
-npm run build
+opencode plugin add github:runfengtsui/opencode-workbuddy-connect#v0.1.0
 ```
 
-在 `~/.config/opencode/opencode.jsonc` 注册插件。以下为只启用国内版的示例：
+或者在 `~/.config/opencode/opencode.jsonc` 中注册包（v2 写法）。以下为同时启用两个接入点的示例（见下文接入点说明）：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    {
-      "package": "/path/to/opencode-workbuddy-connect",
-      "options": {
-        "providerID": "workbuddy-cn",
-        "providerName": "WorkBuddy AI (CN)",
-        "baseUrl": "https://www.workbuddy.cn",
-        "storeName": "workbuddy-cn-auth.json"
-      }
-    }
+    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+        "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
+    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+        "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
+        "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
   ]
 }
 ```
 
-只用国际版则省略 `options`（provider 默认为 `workbuddy`）；两个都要时再追加一条 `workbuddy-cn` 条目（见下文接入点说明）。然后用 `opencode auth login` 做浏览器登录，插件即以所选 provider 注册全部模型。
+建议固定一个 tag（如上）或完整 commit 以便复现；去掉 `#v0.1.0` 后缀则跟随默认分支。然后用 `opencode auth login` 做浏览器登录，插件即以所选 provider 注册全部模型。
 
 ## 两个接入点
 
@@ -66,30 +61,19 @@ WorkBuddy 有两个互相独立的站点，**同一账号在另一个站点上�
 
 每个接入点都是独立的插件实例：独立登录、独立凭据存储、独立基址。因此**登录其中一个绝不会覆盖另一个**，CN 流量也不可能漏到国际版端点。选哪个看模型名即可：`workbuddy-cn/hy3` 与 `workbuddy/hy3`。
 
-由于一个 auth hook 只能绑定一个 provider，两个接入点需要加载两份插件。已提供两个入口文件：
+由于一个 auth hook 只能绑定一个 provider，两个接入点需要加载两份插件。在 `plugins` 中用两份 entries 加载同一个包，每份带上自己的 `options`（`region` / `providerID` / 凭据），见上方示例。条目上显式传入的 options 永远覆盖区域默认值，因此每个接入点都可以自定义 `baseUrl` / `storeName`。
 
-```jsonc
-{
-  "plugin": [
-    ["opencode-workbuddy-connect", {}],
-    ["opencode-workbuddy-connect/dist/index.js", { "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)", "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" }]
-  ]
-}
-```
-
-若你的 opencode 从 `~/.config/opencode/plugin/` 目录加载插件，放两个 shim 文件（每区域一个），各自调用导出的工厂函数：
+若你的 opencode 从 `~/.config/opencode/plugin/` 目录加载插件，放两个 shim 文件（每区域一个），从本地检出目录导入并调用导出的工厂函数：
 
 ```js
 // ~/.config/opencode/plugin/workbuddy.js
-import { definePlugin } from "opencode-workbuddy-connect";
+import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
 export default definePlugin("intl");
 
 // ~/.config/opencode/plugin/workbuddy-cn.js
-import { definePlugin } from "opencode-workbuddy-connect";
+import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
 export default definePlugin("cn");
 ```
-
-条目上显式传入的 options 永远覆盖区域默认值，因此每个接入点都可以自定义 `baseUrl` / `storeName`。
 
 ### 没登录时显示什么
 
@@ -285,7 +269,7 @@ opencode run -m workbuddy/deepseek-v4.1-flash "hello"
 - **`WorkBuddy credentials not found. Run /connect workbuddy-cn`** — 该接入点还没登录过。它与 `workbuddy` 的存储本就是分开的，两个站点各登录一次。
 - **flash 模型答非所问、输出极短循环** — 防护封顶已生效；若仍异常，换非 flash 模型。
 - **回答变成一个 token 一行** — 每个流式 chunk 都错误地关闭了文本块（见 `test/stream.mjs`）。已修复；若上游变更后复发，跑 `node test/stream.mjs` 对比 `blocks:` 行——一段连续回答应当只有一对 `text-start`/`text-end`。
-- **`languageModel is not a function`** — 要么 `dist/` 未构建或已过期（跑 `npm run build`）；要么你自己的入口文件里 `create*` 导出排在了 `createWorkBuddy` 前面：opencode 的旧版 provider loader 调用模块的**第一个** `create*` 导出并期望拿到 AI-SDK provider，所以该前缀已被占用。入口文件请用导出的 `definePlugin()`。
+- **`languageModel is not a function`** — 你自己的入口文件里 `create*` 导出排在了 `createWorkBuddy` 前面：opencode 的旧版 provider loader 调用模块的**第一个** `create*` 导出并期望拿到 AI-SDK provider，所以该前缀已被占用。入口文件请用导出的 `definePlugin()`。（发布的包直接加载 `src/index.ts`，不涉及构建步骤。）
 
 ## 测试
 
@@ -309,7 +293,7 @@ npm run test:live # 需要已登录凭据
 ## 开发
 
 ```bash
-npm run build     # tsc -> dist/
+npm run build     # 可选的本地 tsc 检查 -> dist/（发布的包直接加载 src）
 npm run check     # tsc --noEmit
 npm run lint      # biome check .
 npm run lint:fix  # biome check --write .

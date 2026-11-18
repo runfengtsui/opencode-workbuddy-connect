@@ -210,7 +210,10 @@ section("merge rules");
     "hidden model appears exactly once (no duplicates)",
   );
   // But if the live catalogue DOES include it, the hidden flag is not duplicated.
-  const withF = [...intlRows, { model: getModelDefinition("hy4-preview-f", "intl"), effortsAdvertised: true }];
+  const withF = [
+    ...intlRows,
+    { model: getModelDefinition("hy4-preview-f", "intl"), effortsAdvertised: true },
+  ];
   const intlTableWithF = applyCatalogue("intl", withF);
   check(
     intlTableWithF.filter((m) => m.id === "hy4-preview-f").length === 1,

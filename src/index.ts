@@ -1,6 +1,7 @@
 import type { Plugin, PluginOptions } from "@opencode/plugin";
 
 type PluginContext = Plugin.Context;
+
 import {
   hasWorkBuddyCredentials,
   pollPluginCredential,
@@ -16,9 +17,9 @@ import {
   PROVIDER_ID_CN,
   PROVIDER_NAME,
   USER_AGENT,
+  type WBRegion,
   WORKBUDDY_CN_BASE,
   WORKBUDDY_INTL_BASE,
-  type WBRegion,
 } from "./constants.js";
 import { readEnvSafe } from "./env-helpers.js";
 import { createWorkBuddy, WorkBuddyLanguageModel } from "./language-model.js";
@@ -31,8 +32,8 @@ import {
 } from "./models.js";
 import { dailyCheckin, fetchQuota, formatQuota } from "./quota.js";
 
-export { createWorkBuddy, WorkBuddyLanguageModel };
 export { parseWorkBuddyAuth } from "./auth.js";
+export { createWorkBuddy, WorkBuddyLanguageModel };
 export type WorkBuddyRegion = "intl" | "cn";
 
 export type WorkBuddyPluginOptions = PluginOptions & {
@@ -83,7 +84,10 @@ function withRegion(region: Region, options?: PluginOptions): WorkBuddyPluginOpt
   };
 }
 
-function str(options: PluginOptions | undefined, key: keyof WorkBuddyPluginOptions): string | undefined {
+function str(
+  options: PluginOptions | undefined,
+  key: keyof WorkBuddyPluginOptions,
+): string | undefined {
   const value = options?.[key];
   return typeof value === "string" && value !== "" ? value : undefined;
 }
@@ -114,11 +118,20 @@ function loginBase(options?: PluginOptions): string {
 
 /** The limits opencode acts on. context/input both drive the 1M compaction
  * threshold; WorkBuddy needs no wire parameter for a 1M window. */
-function modelLimit(model: WorkBuddyModelDefinition): { context: number; input: number; output: number } {
+function modelLimit(model: WorkBuddyModelDefinition): {
+  context: number;
+  input: number;
+  output: number;
+} {
   return { context: model.contextWindow, input: model.contextWindow, output: model.maxTokens };
 }
 
-function coreOptions(options: PluginOptions | undefined, region: WBRegion, storeName: string, baseUrl?: string): WorkBuddyProviderOptions {
+function coreOptions(
+  options: PluginOptions | undefined,
+  region: WBRegion,
+  storeName: string,
+  baseUrl?: string,
+): WorkBuddyProviderOptions {
   return {
     apiKey: str(options, "apiKey"),
     userID: str(options, "userID"),
@@ -182,7 +195,8 @@ async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promis
   const id = providerID(options);
   const region = regionOf(options);
   const name = providerName(options);
-  const storeName = str(options, "storeName") || (region === "cn" ? CN_STORE_NAME : INTL_STORE_NAME);
+  const storeName =
+    str(options, "storeName") || (region === "cn" ? CN_STORE_NAME : INTL_STORE_NAME);
   const base = loginBase(options);
   const core = coreOptions(options, region, storeName, str(options, "baseUrl"));
 

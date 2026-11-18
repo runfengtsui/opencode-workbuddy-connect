@@ -27,33 +27,32 @@ Zero-credential setup if you use the WorkBuddy / CodeBuddy desktop app: the plug
 
 ## Install
 
+Install from GitHub with OpenCode. The plugin loads its TypeScript source
+directly, so there is no local build step:
+
 ```bash
-git clone <this-repo> /path/to/opencode-workbuddy-connect
-cd /path/to/opencode-workbuddy-connect
-npm install
-npm run build
+opencode plugin add github:runfengtsui/opencode-workbuddy-connect#v0.1.0
 ```
 
-Register the plugin in `~/.config/opencode/opencode.jsonc` using the v2 form. Example for the CN endpoint only:
+Or register the package in `~/.config/opencode/opencode.jsonc` using the v2
+form. Example that enables both endpoints (see integration points below):
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    {
-      "package": "/path/to/opencode-workbuddy-connect",
-      "options": {
-        "providerID": "workbuddy-cn",
-        "providerName": "WorkBuddy AI (CN)",
-        "baseUrl": "https://www.workbuddy.cn",
-        "storeName": "workbuddy-cn-auth.json"
-      }
-    }
+    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+        "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
+    { "package": "github:runfengtsui/opencode-workbuddy-connect#v0.1.0", "options": {
+        "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
+        "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
   ]
 }
 ```
 
-Omit `options` for the international provider (defaults to `workbuddy`); add a second `workbuddy-cn` entry for both (see integration points below). Then run `opencode auth login` for browser login; the plugin publishes all models under the chosen provider.
+Pin a tag (as above) or a full commit for reproducible installs; drop the
+`#v0.1.0` suffix to track the default branch. Then run `opencode auth login`
+for browser login; the plugin publishes all models under the chosen providers.
 
 ## Integration points
 
@@ -71,32 +70,24 @@ CN traffic can never leak to the international endpoint. Pick by model name:
 `workbuddy-cn/hy3` vs `workbuddy/hy3`.
 
 Because an auth hook binds exactly one provider per instance, both endpoints
-need two loaded copies of the plugin. Two entry files are already published:
-
-```jsonc
-{
-  "plugin": [
-    ["opencode-workbuddy-connect", {}],
-    ["opencode-workbuddy-connect/dist/index.js", { "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)", "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" }]
-  ]
-}
-```
+need two loaded copies of the plugin. Load the package twice in `plugins`, each
+entry with its own `options` (`region` / `providerID` / credentials), as in the
+example above. Options passed to an entry always win over the region defaults,
+so you can pin a custom `baseUrl` / `storeName` per integration point.
 
 If your opencode loads plugins from `~/.config/opencode/plugin/` instead, drop
-in two shim files (one per region) that call the exported factory:
+in two shim files (one per region) that import a local checkout and call the
+exported factory:
 
 ```js
 // ~/.config/opencode/plugin/workbuddy.js
-import { definePlugin } from "opencode-workbuddy-connect";
+import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
 export default definePlugin("intl");
 
 // ~/.config/opencode/plugin/workbuddy-cn.js
-import { definePlugin } from "opencode-workbuddy-connect";
+import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
 export default definePlugin("cn");
 ```
-
-Options passed to an entry always win over the region defaults, so you can pin
-a custom `baseUrl` / `storeName` per integration point.
 
 ### What shows when nothing is logged in
 
@@ -310,7 +301,7 @@ counts) or `setup[v2]`.
 - **`WorkBuddy credentials not found. Run /connect workbuddy-cn`** — that integration point has never logged in. Its store is separate from `workbuddy`'s by design; sign in once per endpoint.
 - **Flash models answering with tiny loops** — intended guard is active; if it still misbehaves, pick a non-flash model.
 - **Answer renders as one token per line** — each streamed chunk was closing the open text block (see `test/stream.mjs`). Fixed; if it reappears after an upstream change, run `node test/stream.mjs` and compare the `blocks:` line — one contiguous answer must be exactly one `text-start`/`text-end` pair.
-- **`languageModel is not a function`** — either you're importing an unbuilt `dist/` (run `npm run build`), or your own entry file exports something named `create*` before `createWorkBuddy`: opencode's legacy provider loader calls the module's **first** `create*` export and expects an AI-SDK provider, so that prefix is reserved. Use the exported `definePlugin()` for entry files.
+- **`languageModel is not a function`** — your own entry file exports something named `create*` before `createWorkBuddy`: opencode's legacy provider loader calls the module's **first** `create*` export and expects an AI-SDK provider, so that prefix is reserved. Use the exported `definePlugin()` for entry files. (The published package loads `src/index.ts` directly, so there is no build step involved.)
 
 ## Tests
 
@@ -334,7 +325,7 @@ The offline suite runs with no credentials and no network, against a sandboxed c
 ## Development
 
 ```bash
-npm run build     # tsc -> dist/
+npm run build     # optional local tsc check -> dist/ (published package loads src directly)
 npm run check     # tsc --noEmit
 npm run lint      # biome check .
 npm run lint:fix  # biome check --write .

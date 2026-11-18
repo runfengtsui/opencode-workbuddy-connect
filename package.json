@@ -10,17 +10,25 @@
     "codebuddy"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git"
+  },
+  "homepage": "https://github.com/runfengtsui/opencode-workbuddy-connect#readme",
+  "bugs": {
+    "url": "https://github.com/runfengtsui/opencode-workbuddy-connect/issues"
+  },
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     }
   },
   "files": [
-    "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],
