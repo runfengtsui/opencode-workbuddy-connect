@@ -27,11 +27,10 @@ Zero-credential setup if you use the WorkBuddy / CodeBuddy desktop app: the plug
 
 ## Install
 
-Install from GitHub with OpenCode. The plugin loads its TypeScript source
-directly, so there is no local build step:
+Install from npm (recommended):
 
 ```bash
-opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
+opencode plugin add opencode-workbuddy-connect
 ```
 
 Or register the package in `~/.config/opencode/opencode.jsonc` using the v2
@@ -41,20 +40,32 @@ form. Example that enables both endpoints (see integration points below):
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
+    { "package": "opencode-workbuddy-connect", "options": {
         "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
-    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
+    { "package": "opencode-workbuddy-connect", "options": {
         "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
         "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
   ]
 }
 ```
 
-Pin a tag (as above) or a full commit for reproducible installs; drop the
-`#v0.1.1` suffix to track the default branch. Use the explicit `git+https://`
-form rather than the `github:` shorthand: the latter defaults to SSH and fails
-without a GitHub SSH key. If `opencode plugin add` is unavailable or broken in
-your OpenCode build, clone the repo and register the local path instead:
+Pin a version for reproducible installs, e.g. `opencode-workbuddy-connect@0.1.1`.
+The plugin loads its TypeScript source directly, so there is no local build step.
+
+### Installing from GitHub instead
+
+Some OpenCode standalone builds cannot install git-hosted plugins: their package
+installer spawns the OpenCode binary as if it were `node`, so npm's flags are
+rejected and the install fails with `git dep preparation failed`. Prefer the npm
+package above. If you still want GitHub, use the explicit `git+https://` form:
+
+```bash
+opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
+```
+
+Do **not** use the `github:` shorthand — it defaults to SSH and fails without a
+GitHub SSH key. If that also fails (for example on the standalone build above),
+clone the repo and register the local path instead:
 
 ```bash
 git clone https://github.com/runfengtsui/opencode-workbuddy-connect.git
@@ -315,6 +326,7 @@ counts) or `setup[v2]`.
 - **Flash models answering with tiny loops** — intended guard is active; if it still misbehaves, pick a non-flash model.
 - **Answer renders as one token per line** — each streamed chunk was closing the open text block (see `test/stream.mjs`). Fixed; if it reappears after an upstream change, run `node test/stream.mjs` and compare the `blocks:` line — one contiguous answer must be exactly one `text-start`/`text-end` pair.
 - **`languageModel is not a function`** — your own entry file exports something named `create*` before `createWorkBuddy`: opencode's legacy provider loader calls the module's **first** `create*` export and expects an AI-SDK provider, so that prefix is reserved. Use the exported `definePlugin()` for entry files. (The published package loads `src/index.ts` directly, so there is no build step involved.)
+- **`NpmInstallFailedError: git dep preparation failed` / `Unrecognized flag: --force in command opencode`** — a bug in some standalone OpenCode builds: the installer spawns the OpenCode binary as the Node runtime for git dependencies, so npm flags are parsed as OpenCode flags. It affects *every* git-hosted plugin. Install from npm (`opencode plugin add opencode-workbuddy-connect`) instead, or register a local checkout as described in Install.
 
 ## Tests
 

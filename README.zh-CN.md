@@ -27,10 +27,10 @@
 
 ## 安装
 
-用 OpenCode 从 GitHub 安装。插件直接加载 TypeScript 源码，无需本地构建：
+从 npm 安装（推荐）：
 
 ```bash
-opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
+opencode plugin add opencode-workbuddy-connect
 ```
 
 或者在 `~/.config/opencode/opencode.jsonc` 中注册包（v2 写法）。以下为同时启用两个接入点的示例（见下文接入点说明）：
@@ -39,16 +39,26 @@ opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-conne
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
+    { "package": "opencode-workbuddy-connect", "options": {
         "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
-    { "package": "git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1", "options": {
+    { "package": "opencode-workbuddy-connect", "options": {
         "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
         "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
   ]
 }
 ```
 
-建议固定一个 tag（如上）或完整 commit 以便复现；去掉 `#v0.1.1` 后缀则跟随默认分支。请用显式的 `git+https://` 形式，不要用 `github:` 简写——后者默认走 SSH，没有 GitHub SSH key 时会失败。如果你的 OpenCode 版本里 `opencode plugin add` 不可用或出错，可以手动克隆仓库并用本地路径注册：
+建议固定版本以便复现，例如 `opencode-workbuddy-connect@0.1.1`。插件直接加载 TypeScript 源码，无需本地构建步骤。
+
+### 改用 GitHub 安装
+
+某些 OpenCode 独立二进制版本无法安装 git 仓库插件：它的包安装器会把 OpenCode 二进制当成 `node` 来派生子进程，导致 npm 参数被拒绝，报 `git dep preparation failed`。请优先使用上面的 npm 包。如果仍要从 GitHub 安装，请使用显式的 `git+https://` 形式：
+
+```bash
+opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
+```
+
+**不要**用 `github:` 简写——它默认走 SSH，没有 GitHub SSH key 时会失败。如果上面的独立二进制版本仍然报错，可以手动克隆仓库并用本地路径注册：
 
 ```bash
 git clone https://github.com/runfengtsui/opencode-workbuddy-connect.git
@@ -280,6 +290,7 @@ opencode run -m workbuddy/deepseek-v4.1-flash "hello"
 - **flash 模型答非所问、输出极短循环** — 防护封顶已生效；若仍异常，换非 flash 模型。
 - **回答变成一个 token 一行** — 每个流式 chunk 都错误地关闭了文本块（见 `test/stream.mjs`）。已修复；若上游变更后复发，跑 `node test/stream.mjs` 对比 `blocks:` 行——一段连续回答应当只有一对 `text-start`/`text-end`。
 - **`languageModel is not a function`** — 你自己的入口文件里 `create*` 导出排在了 `createWorkBuddy` 前面：opencode 的旧版 provider loader 调用模块的**第一个** `create*` 导出并期望拿到 AI-SDK provider，所以该前缀已被占用。入口文件请用导出的 `definePlugin()`。（发布的包直接加载 `src/index.ts`，不涉及构建步骤。）
+- **`NpmInstallFailedError: git dep preparation failed` / `Unrecognized flag: --force in command opencode`** — 某些 OpenCode 独立二进制版本的缺陷：安装 git 依赖时把 OpenCode 二进制当成 Node 运行时来派生子进程，导致 npm 参数被当成 OpenCode 参数解析。这会影响*所有* git 仓库插件。请改用 npm 安装（`opencode plugin add opencode-workbuddy-connect`），或按「安装」章节的说明注册本地检出目录。
 
 ## 测试
 
