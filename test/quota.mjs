@@ -23,6 +23,7 @@ delete process.env.WORKBUDDY_DISABLE_CHECKIN;
 
 const { fetchQuota, dailyCheckin, formatQuota, parseExpiryMs } = await import("../dist/quota.js");
 const { PROVIDER_ID_CN, CN_STORE_NAME } = await import("../dist/constants.js");
+const { createV2Context } = await import("./helpers/v2-context.mjs");
 
 let failures = 0;
 const check = (ok, what) => {
@@ -282,8 +283,8 @@ check(parseExpiryMs({}) === 0, "object -> 0");
 // The user's actual requirement: the campaign may vanish, change shape, or stop
 // working at any time, and none of it may touch the chat plugin. Simulate the
 // worst case -- every billing request throws -- then assert the plugin still
-// boots, still registers its tools, a NON-billing tool still answers, and each
-// billing tool degrades to a returned message rather than an exception.
+// boots (v2: setup() still registers its tools), a NON-billing tool still
+// answers, and each billing tool degrades to a returned message, never a throw.
 {
   // Section 10 removed the store to prove graceful no-creds handling; restore
   // it so this section tests a *billing* outage, not an auth outage.
@@ -291,9 +292,11 @@ check(parseExpiryMs({}) === 0, "object -> 0");
   globalThis.fetch = async () => {
     throw new TypeError("simulated total billing outage");
   };
-  const mod = await import("../dist/index.js");
-  const hooks = await mod.definePlugin("cn").server({ client: undefined }, {});
-  const toolNames = Object.keys(hooks.tool ?? {});
+  const { definePlugin } = await import("../dist/index.js");
+  const { ctx, state } = createV2Context({});
+  await definePlugin("cn").setup(ctx);
+  const tool = (name) => state.tools.find((t) => t.name === name);
+  const toolNames = state.tools.map((t) => t.name);
   check(
     ["workbuddy_cn_account", "workbuddy_cn_quota", "workbuddy_cn_checkin"].every((t) =>
       toolNames.includes(t),
@@ -301,17 +304,14 @@ check(parseExpiryMs({}) === 0, "object -> 0");
     `all 3 tools still registered during outage (${toolNames.join(",")})`,
   );
 
-  const acct = await hooks.tool.workbuddy_cn_account.execute({}, {});
-  check(/provider=workbuddy-cn/.test(acct.output), "non-billing account tool unaffected");
+  // v2 tools return { content } (the v1 { output, data } bag is gone).
+  const acct = await tool("workbuddy_cn_account").execute({}, {});
+  check(/provider=workbuddy-cn/.test(acct.content), "non-billing account tool unaffected");
 
   let threw = false;
   try {
-    const q = await hooks.tool.workbuddy_cn_quota.execute({}, {});
-    check(q.ok !== true && /unavailable/i.test(q.output), "quota tool degrades to a message");
-    check(
-      q.data?.ok === false && Array.isArray(q.data?.packages),
-      "quota tool data stays structured",
-    );
+    const q = await tool("workbuddy_cn_quota").execute({}, {});
+    check(/unavailable/i.test(q.content), "quota tool degrades to a message");
   } catch {
     threw = true;
   }
@@ -319,8 +319,8 @@ check(parseExpiryMs({}) === 0, "object -> 0");
 
   threw = false;
   try {
-    const c = await hooks.tool.workbuddy_cn_checkin.execute({}, {});
-    check(c.data?.status === "failed", "checkin tool reports failed during outage");
+    const c = await tool("workbuddy_cn_checkin").execute({}, {});
+    check(/checkin\[cn\]: failed/.test(c.content), "checkin tool reports failed during outage");
   } catch {
     threw = true;
   }

@@ -9,8 +9,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const sandbox = mkdtempSync(join(tmpdir(), "wb-cat-"));
+// staticModels() also reads the desktop product-config cache through
+// homedir(); without isolating HOME the real machine's cached numbers (e.g.
+// kimi-k2.5 at 256k) silently override the bundled table under test.
+process.env.HOME = sandbox;
 process.env.XDG_CONFIG_HOME = join(sandbox, "config");
 process.env.XDG_CACHE_HOME = join(sandbox, "cache");
+for (const key of [
+  "WORKBUDDY_CONFIG_DIR",
+  "CODEBUDDY_CONFIG_DIR",
+  "WORKBUDDYAI_PRODUCT_CONFIG",
+  "WORKBUDDYAI_CN_PRODUCT_CONFIG",
+])
+  delete process.env[key];
 delete process.env.WORKBUDDY_TOKEN;
 delete process.env.WORKBUDDY_UID;
 delete process.env.WORKBUDDY_CN_TOKEN;

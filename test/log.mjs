@@ -7,6 +7,7 @@
 // mirrors the full trace to stderr.
 // Run: node test/log.mjs
 import { installLogSink, logError, logInfo, logPlugin, logWarn } from "../dist/log.js";
+import { createV2Context } from "./helpers/v2-context.mjs";
 
 // This file is about the log sink; the model catalogue must stay offline.
 process.env.WORKBUDDY_DISABLE_MODEL_DISCOVERY = "1";
@@ -140,9 +141,12 @@ const stderrOf = (env) => {
   check(true, "missing client / missing app.log must be inert");
 }
 
-// 5. The v1 server hook installs the real sink before anything logs.
+// 5. With a sink installed, v2 setup() records lifecycle lines in the log file.
+//    v2's PluginContext carries no client, so the sink is installed explicitly
+//    here rather than by a v1 server() hook that no longer exists.
 {
   const { definePlugin } = await import("../dist/index.js");
+  const { ctx, state } = createV2Context({});
   const logged = [];
   const client = {
     app: {
@@ -152,18 +156,21 @@ const stderrOf = (env) => {
       },
     },
   };
-  const hooks = await definePlugin("cn").server({ client }, {});
-  const cfg = { provider: {} };
-  await hooks.config(cfg);
+  installLogSink(client);
+  await definePlugin("cn").setup(ctx);
   await new Promise((resolve) => setTimeout(resolve, 10));
+  installLogSink(undefined);
   console.log(
-    `via server(): ${logged.length} entr${logged.length === 1 ? "y" : "ies"} to the log file`,
+    `via setup(): ${logged.length} entr${logged.length === 1 ? "y" : "ies"} to the log file`,
   );
   check(
-    logged.some((m) => /registered \d+ models for cn/.test(m)),
-    "server() must install the sink so the legacy config hook logs to the file",
+    logged.some((m) => /registering \d+ models for cn/.test(m)),
+    "setup() must log model registration to the sink",
   );
-  check(!!cfg.provider["workbuddy-cn"], "provider still registered while logging");
+  check(
+    state.providers.some((p) => p.info.id === "workbuddy-cn"),
+    "provider still registered while logging",
+  );
 }
 
 if (fail) {

@@ -128,7 +128,7 @@ function modelLimit(model: WorkBuddyModelDefinition): {
 
 function coreOptions(
   options: PluginOptions | undefined,
-  region: WBRegion,
+  _region: WBRegion,
   storeName: string,
   baseUrl?: string,
 ): WorkBuddyProviderOptions {

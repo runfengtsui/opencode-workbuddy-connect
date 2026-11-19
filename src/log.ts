@@ -29,9 +29,9 @@ function threshold(): number {
 }
 
 /** The opencode server writes this to the running instance's log file, which
- * keeps the terminal clear. Installed from the v1 server() hook -- the only
- * entry point that carries a client (v2's PluginContext has none) -- and every
- * lookup is optional so an older/newer SDK can never break a request. */
+ * keeps the terminal clear. The host installs the sink from a client-bearing
+ * entry point (v2's PluginContext has no client of its own), and every lookup
+ * is optional so an older/newer SDK can never break a request. */
 export interface LogClient {
   app?: {
     log?: (args: {
