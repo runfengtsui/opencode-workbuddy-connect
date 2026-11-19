@@ -190,8 +190,12 @@ function v2ModelInfo(model: WorkBuddyModelDefinition, id: string): Record<string
 }
 
 /** Register one integration point against the OpenCode v2 plugin context. */
-async function setupV2(ctx: PluginContext, opts: WorkBuddyPluginOptions): Promise<void> {
-  const options = { ...opts, ...(ctx.options ?? {}) } as WorkBuddyPluginOptions;
+async function setupV2(
+  ctx: PluginContext,
+  opts: WorkBuddyPluginOptions,
+  fixed = false,
+): Promise<void> {
+  const options = (fixed ? opts : { ...opts, ...(ctx.options ?? {}) }) as WorkBuddyPluginOptions;
   const id = providerID(options);
   const region = regionOf(options);
   const name = providerName(options);
@@ -379,4 +383,30 @@ export function definePlugin(region: WorkBuddyRegion = "intl") {
   };
 }
 
-export default definePlugin("intl");
+/**
+ * Options for one region inside the dual-region default plugin. Region-binding
+ * keys are stripped from the caller's options and replaced by this region's
+ * own values, so a single plugin instance can host both endpoints without one
+ * `region`/`providerID` option overriding the other.
+ */
+function dualRegionOptions(region: Region, options?: PluginOptions): WorkBuddyPluginOptions {
+  const shared = { ...(options ?? {}) } as Record<string, unknown>;
+  for (const key of ["region", "providerID", "providerName", "storeName", "baseUrl"])
+    delete shared[key];
+  return withRegion(region, shared as PluginOptions);
+}
+
+/**
+ * Default export: one plugin, two integration points. OpenCode keeps only the
+ * first plugin with a given id, so both providers must be registered from this
+ * single setup rather than from two instances of the package.
+ */
+const dualRegionPlugin = {
+  id: INTL_REGION.moduleID,
+  async setup(ctx: PluginContext): Promise<void> {
+    await setupV2(ctx, dualRegionOptions(INTL_REGION, ctx.options), true);
+    await setupV2(ctx, dualRegionOptions(CN_REGION, ctx.options), true);
+  },
+};
+
+export default dualRegionPlugin;

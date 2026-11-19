@@ -1,6 +1,6 @@
 {
   "name": "opencode-workbuddy-connect",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "WorkBuddy AI provider plugin for opencode",
   "keywords": [
     "ai-sdk-provider",

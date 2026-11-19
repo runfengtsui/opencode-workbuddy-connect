@@ -33,29 +33,23 @@
 opencode plugin add opencode-workbuddy-connect
 ```
 
-或者在 `~/.config/opencode/opencode.jsonc` 中注册包（v2 写法）。以下为同时启用两个接入点的示例（见下文接入点说明）：
+或者在 `~/.config/opencode/opencode.jsonc` 中注册包（v2 写法）。单条 entry 即会同时注册两个接入点（见下文接入点说明）：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    { "package": "opencode-workbuddy-connect", "options": {
-        "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
-    { "package": "opencode-workbuddy-connect", "options": {
-        "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
-        "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
-  ]
+  "plugins": ["opencode-workbuddy-connect"]
 }
 ```
 
-建议固定版本以便复现，例如 `opencode-workbuddy-connect@0.1.1`。插件直接加载 TypeScript 源码，无需本地构建步骤。
+建议固定版本以便复现，例如 `opencode-workbuddy-connect@0.1.2`。插件直接加载 TypeScript 源码，无需本地构建步骤。`apiKey`、`userID`、`setDefault` 等通用选项会同时作用于两个接入点；各区域的 `region` / `providerID` / `storeName` / `baseUrl` 由插件自动设定，单条 entry 无法按区域单独覆盖。
 
 ### 改用 GitHub 安装
 
 某些 OpenCode 独立二进制版本无法安装 git 仓库插件：它的包安装器会把 OpenCode 二进制当成 `node` 来派生子进程，导致 npm 参数被拒绝，报 `git dep preparation failed`。请优先使用上面的 npm 包。如果仍要从 GitHub 安装，请使用显式的 `git+https://` 形式：
 
 ```bash
-opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
+opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.2'
 ```
 
 **不要**用 `github:` 简写——它默认走 SSH，没有 GitHub SSH key 时会失败。如果上面的独立二进制版本仍然报错，可以手动克隆仓库并用本地路径注册：
@@ -65,7 +59,7 @@ git clone https://github.com/runfengtsui/opencode-workbuddy-connect.git
 ```
 
 ```jsonc
-{ "plugins": [{ "package": "/path/to/opencode-workbuddy-connect", "options": { "region": "cn" } }] }
+{ "plugins": ["/path/to/opencode-workbuddy-connect"] }
 ```
 
 然后用 `opencode auth login` 做浏览器登录，插件即以所选 provider 注册全部模型。
@@ -79,21 +73,18 @@ WorkBuddy 有两个互相独立的站点，**同一账号在另一个站点上�
 | `workbuddy` | `www.workbuddy.ai`（国际版） | 国际版登录页 | `~/.config/opencode/workbuddy-auth.json` |
 | `workbuddy-cn` | `www.workbuddy.cn`（国内版） | 国内版登录页 | `~/.config/opencode/workbuddy-cn-auth.json` |
 
-每个接入点都是独立的插件实例：独立登录、独立凭据存储、独立基址。因此**登录其中一个绝不会覆盖另一个**，CN 流量也不可能漏到国际版端点。选哪个看模型名即可：`workbuddy-cn/hy3` 与 `workbuddy/hy3`。
+每个接入点都是独立的 provider：独立登录、独立凭据存储、独立基址。因此**登录其中一个绝不会覆盖另一个**，CN 流量也不可能漏到国际版端点。选哪个看模型名即可：`workbuddy-cn/hy3` 与 `workbuddy/hy3`。
 
-由于一个 auth hook 只能绑定一个 provider，两个接入点需要加载两份插件。在 `plugins` 中用两份 entries 加载同一个包，每份带上自己的 `options`（`region` / `providerID` / 凭据），见上方示例。条目上显式传入的 options 永远覆盖区域默认值，因此每个接入点都可以自定义 `baseUrl` / `storeName`。
+两个 provider 由**同一个**插件实例注册。请勿把包加载两次：OpenCode 只保留同 id 的第一个插件，第二条 entry 会被静默丢弃。一条 `plugins`  entry 就够了。
 
-若你的 opencode 从 `~/.config/opencode/plugin/` 目录加载插件，放两个 shim 文件（每区域一个），从本地检出目录导入并调用导出的工厂函数：
+若你的 opencode 从 `~/.config/opencode/plugins/` 目录加载插件，放一个 shim 文件重新导出双区域默认导出即可：
 
 ```js
-// ~/.config/opencode/plugin/workbuddy.js
-import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
-export default definePlugin("intl");
-
-// ~/.config/opencode/plugin/workbuddy-cn.js
-import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
-export default definePlugin("cn");
+// ~/.config/opencode/plugins/workbuddy.js
+export { default } from "opencode-workbuddy-connect";
 ```
+
+命名导出 `definePlugin("intl" | "cn")` 仍然保留，供确实需要「一个插件实例只对应一个区域」的场景使用。
 
 ### 没登录时显示什么
 

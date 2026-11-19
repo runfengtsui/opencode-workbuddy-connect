@@ -34,23 +34,20 @@ opencode plugin add opencode-workbuddy-connect
 ```
 
 Or register the package in `~/.config/opencode/opencode.jsonc` using the v2
-form. Example that enables both endpoints (see integration points below):
+form. A single entry registers **both** endpoints (see integration points below):
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    { "package": "opencode-workbuddy-connect", "options": {
-        "region": "intl", "providerID": "workbuddy", "providerName": "WorkBuddy AI" } },
-    { "package": "opencode-workbuddy-connect", "options": {
-        "region": "cn", "providerID": "workbuddy-cn", "providerName": "WorkBuddy AI (CN)",
-        "baseUrl": "https://www.workbuddy.cn", "storeName": "workbuddy-cn-auth.json" } }
-  ]
+  "plugins": ["opencode-workbuddy-connect"]
 }
 ```
 
-Pin a version for reproducible installs, e.g. `opencode-workbuddy-connect@0.1.1`.
+Pin a version for reproducible installs, e.g. `opencode-workbuddy-connect@0.1.2`.
 The plugin loads its TypeScript source directly, so there is no local build step.
+Options such as `apiKey`, `userID` and `setDefault` apply to both endpoints;
+per-region `region` / `providerID` / `storeName` / `baseUrl` are set automatically
+and cannot be overridden per endpoint from a single entry.
 
 ### Installing from GitHub instead
 
@@ -60,7 +57,7 @@ rejected and the install fails with `git dep preparation failed`. Prefer the npm
 package above. If you still want GitHub, use the explicit `git+https://` form:
 
 ```bash
-opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.1'
+opencode plugin add 'git+https://github.com/runfengtsui/opencode-workbuddy-connect.git#v0.1.2'
 ```
 
 Do **not** use the `github:` shorthand — it defaults to SSH and fails without a
@@ -72,7 +69,7 @@ git clone https://github.com/runfengtsui/opencode-workbuddy-connect.git
 ```
 
 ```jsonc
-{ "plugins": [{ "package": "/path/to/opencode-workbuddy-connect", "options": { "region": "cn" } }] }
+{ "plugins": ["/path/to/opencode-workbuddy-connect"] }
 ```
 
 Then run `opencode auth login` for browser login; the plugin publishes all
@@ -88,30 +85,25 @@ work on the other. The plugin ships both, as two provider ids:
 | `workbuddy` | `www.workbuddy.ai` (international) | international login | `~/.config/opencode/workbuddy-auth.json` |
 | `workbuddy-cn` | `www.workbuddy.cn` (CN) | CN login | `~/.config/opencode/workbuddy-cn-auth.json` |
 
-Each is its own plugin instance with its own login, its own credential store
-and its own base URL, so **logging into one never overwrites the other** and
-CN traffic can never leak to the international endpoint. Pick by model name:
+Each endpoint is an independent provider with its own login, credential store
+and base URL, so **logging into one never overwrites the other** and CN traffic
+can never leak to the international endpoint. Pick by model name:
 `workbuddy-cn/hy3` vs `workbuddy/hy3`.
 
-Because an auth hook binds exactly one provider per instance, both endpoints
-need two loaded copies of the plugin. Load the package twice in `plugins`, each
-entry with its own `options` (`region` / `providerID` / credentials), as in the
-example above. Options passed to an entry always win over the region defaults,
-so you can pin a custom `baseUrl` / `storeName` per integration point.
+Both providers are registered by a **single** plugin instance. Do not load the
+package twice: OpenCode keeps only the first plugin with a given id, so a second
+entry would be silently dropped. One `plugins` entry is all you need.
 
-If your opencode loads plugins from `~/.config/opencode/plugin/` instead, drop
-in two shim files (one per region) that import a local checkout and call the
-exported factory:
+If your opencode loads plugins from `~/.config/opencode/plugins/` instead, drop
+in one shim file that re-exports the dual-region default:
 
 ```js
-// ~/.config/opencode/plugin/workbuddy.js
-import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
-export default definePlugin("intl");
-
-// ~/.config/opencode/plugin/workbuddy-cn.js
-import { definePlugin } from "/path/to/opencode-workbuddy-connect/src/index.ts";
-export default definePlugin("cn");
+// ~/.config/opencode/plugins/workbuddy.js
+export { default } from "opencode-workbuddy-connect";
 ```
+
+The named `definePlugin("intl" | "cn")` export is still available for callers
+that deliberately want a single region per plugin instance.
 
 ### What shows when nothing is logged in
 
